@@ -3,8 +3,10 @@
 #   FIREBASE_APP_ID           -> id de la app Android (1:123...:android:abc...)
 #   FIREBASE_SERVICE_ACCOUNT  -> JSON de una cuenta de servicio con rol
 #                                "Firebase App Distribution Admin"
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD -> firma de release persistente
 # Variable (Settings > Variables):
-#   API_BASE_URL              -> https://qualitrack-platform.onrender.com
+#   API_BASE_URL              -> URL HTTPS verificada del backend de Experimentos
 name: Build APK and distribute
 
 on:
@@ -12,9 +14,20 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+      FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/qualitrack-release.jks
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,25 +39,25 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.44.3'
 
-      - name: Create platform folders if missing
+      - name: Validate release configuration
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ ! -d android ]; then
-            flutter create --org com.iotech --project-name qualitrack_mobile --platforms android .
-          fi
-
-      - name: Ensure INTERNET permission
-        run: |
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
-            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$MANIFEST"
+          [[ "$API_BASE_URL" == https://* ]] || { echo 'API_BASE_URL must be an HTTPS backend URL'; exit 1; }
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            [[ -n "${!name}" ]] || { echo "Missing release secret: $name"; exit 1; }
+          done
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
 
       - run: flutter pub get
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
 
       - name: Build release APK
-        run: flutter build apk --release --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
+        run: flutter build apk --release --dart-define="API_BASE_URL=$API_BASE_URL"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -52,7 +65,7 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Distribute to testers
-        if: ${{ secrets.FIREBASE_APP_ID != '' }}
+        if: ${{ env.FIREBASE_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != '' }}
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
           appId: ${{ secrets.FIREBASE_APP_ID }}
@@ -60,3 +73,7 @@ jobs:
           groups: qa-testers
           file: build/app/outputs/flutter-apk/app-release.apk
           releaseNotes: ${{ github.ref_name }}
+
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$ANDROID_KEYSTORE_PATH"
