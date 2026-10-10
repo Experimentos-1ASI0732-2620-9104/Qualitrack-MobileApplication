@@ -127,7 +127,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetBatchComplianceEvents(sl()));
 
   // Product Batch Management
-  sl.registerLazySingleton(() => BatchRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => BatchRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<BatchRepository>(() => BatchRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetBatches(sl()));
   sl.registerLazySingleton(() => GetBatchDetail(sl()));

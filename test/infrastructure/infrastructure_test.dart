@@ -143,7 +143,7 @@ void main() {
       expect(alert.timestamp, DateTime.utc(2026, 9, 3, 17, 1, 24));
     });
 
-    test('batch and status update request', () {
+    test('batch', () {
       final batch = const BatchDto({
         'id': 3,
         'labId': 7,
@@ -158,10 +158,6 @@ void main() {
         'notes': null,
       }).toDomain();
       expect(batch.status, BatchStatus.inProgress);
-      expect(
-        const UpdateBatchStatusRequest.reject(rejectionDate: '2026-09-04', reason: 'BPM').toJson(),
-        {'status': 'REJECTED', 'rejectionDate': '2026-09-04', 'reason': 'BPM'},
-      );
     });
 
     test('telemetry, equipment, inventory and subscription resources', () {
@@ -288,6 +284,44 @@ void main() {
       final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
       final items = await repo.getByLaboratory(const LaboratoryId(7));
       expect(items.map((e) => e.id), [1]);
+    });
+
+    test('batch routes hang from the environment and the product of the batch', () async {
+      final client = MockApiClient();
+      const base = '/laboratories/7/environments/2/products/9/batches';
+      when(() => client.get('/laboratories/7/batches')).thenAnswer(
+        (_) async => [
+          {'id': 3, 'labId': 7, 'environmentId': 2, 'productId': 9, 'batchNumber': 'LOT-1', 'status': 'PENDING'},
+        ],
+      );
+      when(() => client.get('$base/3')).thenAnswer(
+        (_) async => {'id': 3, 'labId': 7, 'environmentId': 2, 'productId': 9, 'batchNumber': 'LOT-1', 'status': 'RELEASED'},
+      );
+      when(() => client.get('$base/3/traceability')).thenAnswer(
+        (_) async => {
+          'rawMaterials': [
+            {'id': 1, 'rawMaterialId': 5, 'rawMaterialName': 'Hierro', 'quantityUsed': 2.5, 'unit': 'kg'},
+          ],
+        },
+      );
+      when(() => client.post('$base/3/releases', body: {'releaseDate': '2026-10-10', 'notes': 'OK'}))
+          .thenAnswer((_) async => {'batchId': 3, 'status': 'RELEASED'});
+      final repo = BatchRepositoryImpl(BatchRemoteDataSource(client, () => 7));
+
+      final usage = await repo.getRawMaterialUsage(3);
+      expect(usage.single.batchId, 3);
+      expect(usage.single.quantityUsed, 2.5);
+
+      final released = await repo.release(batchId: 3, releaseDate: '2026-10-10', notes: 'OK');
+      expect(released.status, BatchStatus.released);
+      verify(() => client.get('/laboratories/7/batches')).called(1);
+    });
+
+    test('unknown batch is a not found failure', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/batches')).thenAnswer((_) async => <Object>[]);
+      final repo = BatchRepositoryImpl(BatchRemoteDataSource(client, () => 7));
+      await expectLater(repo.getById(99), throwsA(isA<NotFoundFailure>()));
     });
 
     test('equipment maintenance uses the environment of the equipment', () async {
