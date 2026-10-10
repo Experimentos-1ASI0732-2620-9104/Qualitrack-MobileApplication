@@ -2,7 +2,7 @@
 
 Fecha: 2026-09-16 · Fuentes revisadas:
 
-- `qualitrack-platform` (Spring Boot, rama `develop` @ `923048a`): 35 controllers REST, 832 clases Java.
+- `qualitrack-platform` (Spring Boot, rama `develop`): el análisis original se hizo sobre el commit `923048a`; la API vigente es la v1.0.0 (`a0e2ecc`), documentada en `mobile-api-mapping.md`.
 - `qualitrack-web-app` (Angular 21, rama `develop` @ `feaba0d`): 10 módulos DDD con stores basados en signals.
 - `QualiTrack Movik - IOT.pdf`: 24 páginas de mockups móviles.
 - Referencias de estructura Flutter: Veyra-Mobile-Application y restock-mobile-application (sólo organización; no se reutiliza dominio ni código).
