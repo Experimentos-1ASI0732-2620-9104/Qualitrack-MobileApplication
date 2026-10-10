@@ -59,14 +59,14 @@ class SubscriptionRemoteDataSource {
 
   final ApiClient _client;
 
-  /// Returns null when the laboratory has no ACTIVE subscription (HTTP 404).
+  /// Returns null when the laboratory has no ACTIVE subscription.
   Future<SubscriptionDto?> getActive(int labId) async {
     try {
       final data = await _client.get(
         '/laboratories/$labId/subscriptions',
         query: {'status': 'ACTIVE'},
       );
-      // With status=ACTIVE the backend answers a single object; tolerate a list.
+      // The backend answers a list, empty when there is no ACTIVE subscription.
       if (data is List) {
         final active = Json.asList(data).where((s) => s['status'] == 'ACTIVE').firstOrNull;
         return active == null ? null : SubscriptionDto(active);
@@ -78,7 +78,7 @@ class SubscriptionRemoteDataSource {
   }
 
   Future<List<SubscriptionDto>> getBillingSummary(int labId) async => Json.asList(
-    await _client.get('/laboratories/$labId/billing-summary'),
+    await _client.get('/laboratories/$labId/subscriptions'),
   ).map(SubscriptionDto.new).toList();
 
   Future<List<PaymentDto>> getPayments(int subscriptionId) async => Json.asList(

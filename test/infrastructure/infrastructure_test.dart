@@ -304,6 +304,25 @@ void main() {
       expect(await repo.getActive(const LaboratoryId(7)), isNull);
     });
 
+    test('laboratory without an active subscription (empty list) becomes null', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/subscriptions', query: {'status': 'ACTIVE'}))
+          .thenAnswer((_) async => <Object>[]);
+      final repo = SubscriptionRepositoryImpl(SubscriptionRemoteDataSource(client));
+      expect(await repo.getActive(const LaboratoryId(7)), isNull);
+    });
+
+    test('billing history lists the subscriptions of the laboratory', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/subscriptions')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'laboratoryId': 7, 'planCode': 'BASIC', 'status': 'ACTIVE'},
+        ],
+      );
+      final repo = SubscriptionRepositoryImpl(SubscriptionRemoteDataSource(client));
+      expect((await repo.getBillingSummary(const LaboratoryId(7))).single.planCode, 'BASIC');
+    });
+
     test('inventory aggregates the environments and resolves the material environment', () async {
       final client = MockApiClient();
       when(() => client.get('/laboratories/7/environments')).thenAnswer(
