@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-10-10
+
+### Changed
+- The telemetry chart refreshes on every 15 second poll again, like the live readings (it was every 5 minutes since 1.0.3). The live readings keep the one-hour window.
+- The deviation trends of the equipment detail cover the platform default of 7 days again instead of the last 6 hours.
+- Test suite grows to 98 tests.
+
 ## [1.0.3] - 2026-10-10
 
 ### Fixed

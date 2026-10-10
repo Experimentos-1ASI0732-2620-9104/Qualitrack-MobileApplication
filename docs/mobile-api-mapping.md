@@ -16,7 +16,7 @@ La v1.0.0 del backend reorganizó la API: los recursos cuelgan de `laboratories/
 | Roles | `ROLE_ADMIN`, `ROLE_QA_MANAGER`, `ROLE_LAB_OPERATOR`. Liberar y rechazar lotes exige `ROLE_QA_MANAGER` o `ROLE_ADMIN` en el servidor. |
 | Errores | `ErrorResource {code, message, details}`. `VALIDATION_ERROR`→400, `*_NOT_FOUND`→404, `*_CONFLICT`→409, `UNEXPECTED_ERROR`→500, `ACCESS_DENIED`→403. |
 | Paginación | No existe en ningún endpoint. Todas las listas son completas. |
-| Periodos | Telemetría y tendencias devuelven todas las lecturas del periodo (24 h por defecto: ~870 KB por contenedor; 7 días por defecto en tendencias: ~1,8 MB por entorno). La app pide solo la última hora para las lecturas en vivo y las últimas 6 h para las tendencias (`from` sin `to`). |
+| Periodos | Telemetría y tendencias devuelven todas las lecturas del periodo (24 h por defecto: ~870 KB por contenedor; 7 días por defecto en tendencias: ~1,8 MB por entorno). La app pide solo la última hora para las lecturas en vivo (`from` sin `to`); el gráfico (24 h) se refresca en cada ciclo de 15 s y las tendencias usan los 7 días por defecto. |
 | Fechas | Alertas y eventos guardan `timestamp` como **String** ISO-8601. Las lecturas de telemetría usan `measuredAt` y el filtro `from`/`to` acepta ISO-8601 con offset (por defecto, últimas 24 h). |
 
 ## Enums reales

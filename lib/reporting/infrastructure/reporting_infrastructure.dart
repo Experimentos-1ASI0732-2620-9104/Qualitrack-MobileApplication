@@ -105,16 +105,10 @@ class AuditLogEntryDto {
 }
 
 class ReportingRemoteDataSource {
-  ReportingRemoteDataSource(this._client, this._laboratoryId, {DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
-
-  /// The platform answers the last 7 days by default (about 1.8 MB for an
-  /// environment); the equipment detail only needs the recent trend.
-  static const Duration trendsWindow = Duration(hours: 6);
+  const ReportingRemoteDataSource(this._client, this._laboratoryId);
 
   final ApiClient _client;
   final LaboratoryIdProvider _laboratoryId;
-  final DateTime Function() _clock;
 
   Future<KpiDashboardDto?> getKpiDashboard(int labId) => nullOnNotFound(
     () async => KpiDashboardDto(Json.asMap(await _client.get('/laboratories/$labId/kpi-dashboards'))),
@@ -132,10 +126,7 @@ class ReportingRemoteDataSource {
     final environmentId = Json.optInt(equipment, 'environmentId');
     if (environmentId == null) return const [];
     final trends = Json.asList(
-      await _client.get(
-        '/laboratories/$labId/environments/$environmentId/deviation-trends',
-        query: {'from': _clock().toUtc().subtract(trendsWindow).toIso8601String()},
-      ),
+      await _client.get('/laboratories/$labId/environments/$environmentId/deviation-trends'),
     );
     return trends
         .where((trend) => Json.optInt(trend, 'equipmentId') == equipmentId)
