@@ -30,6 +30,8 @@ final class Equipment extends Equatable {
     required this.laboratoryId,
     required this.name,
     required this.status,
+    this.environmentId,
+    this.deviceType,
     this.rawStatus,
     this.type,
     this.model,
@@ -39,6 +41,11 @@ final class Equipment extends Equatable {
 
   final int id;
   final int laboratoryId;
+  final int? environmentId;
+
+  /// `ENVIRONMENTAL_DEVICE` or `CONTAINER_MONITOR` for IoT devices, null for
+  /// equipment without telemetry.
+  final String? deviceType;
   final String name;
   final String? type;
   final String? model;
@@ -65,6 +72,8 @@ final class Equipment extends Equatable {
   List<Object?> get props => [
     id,
     laboratoryId,
+    environmentId,
+    deviceType,
     name,
     type,
     model,

@@ -1,5 +1,7 @@
 import '../../shared/domain/value_objects.dart';
+import '../../shared/domain/failure.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/batch.dart';
 
@@ -11,6 +13,7 @@ class BatchDto {
   ProductionBatch toDomain() => ProductionBatch(
     id: Json.requireInt(json, 'id'),
     labId: Json.requireInt(json, 'labId'),
+    environmentId: Json.optInt(json, 'environmentId'),
     productId: Json.optInt(json, 'productId'),
     productName: Json.optString(json, 'productName'),
     batchNumber: Json.requireString(json, 'batchNumber'),
@@ -43,51 +46,55 @@ class RawMaterialUsageDto {
   );
 }
 
-/// `UpdateBatchStatusResource`.
-class UpdateBatchStatusRequest {
-  const UpdateBatchStatusRequest.release({required this.releaseDate, required this.notes})
-    : status = BatchStatus.released,
-      rejectionDate = null,
-      reason = null;
-
-  const UpdateBatchStatusRequest.reject({required this.rejectionDate, required this.reason})
-    : status = BatchStatus.rejected,
-      releaseDate = null,
-      notes = null;
-
-  final BatchStatus status;
-  final String? releaseDate;
-  final String? notes;
-  final String? rejectionDate;
-  final String? reason;
-
-  Map<String, dynamic> toJson() => {
-    'status': status.code,
-    if (releaseDate != null) 'releaseDate': releaseDate,
-    if (notes != null) 'notes': notes,
-    if (rejectionDate != null) 'rejectionDate': rejectionDate,
-    if (reason != null) 'reason': reason,
-  };
-}
-
 class BatchRemoteDataSource {
-  const BatchRemoteDataSource(this._client);
+  BatchRemoteDataSource(this._client, this._laboratoryId);
 
   final ApiClient _client;
+  final LaboratoryIdProvider _laboratoryId;
+  final Map<int, String> _pathOfBatch = {};
 
-  Future<List<BatchDto>> getByLab(int labId) async => Json.asList(
-    await _client.get('/batches', query: {'labId': labId}),
-  ).map(BatchDto.new).toList();
+  Future<List<BatchDto>> getByLab(int labId) async {
+    final batches = Json.asList(await _client.get('/laboratories/$labId/batches'));
+    for (final batch in batches) {
+      final environmentId = Json.optInt(batch, 'environmentId');
+      final productId = Json.optInt(batch, 'productId');
+      if (environmentId == null || productId == null) continue;
+      _pathOfBatch[Json.requireInt(batch, 'id')] =
+          '/laboratories/$labId/environments/$environmentId/products/$productId/batches';
+    }
+    return batches.map(BatchDto.new).toList();
+  }
+
+  /// Batch routes hang from the environment and the product of the batch,
+  /// which the laboratory batch list provides.
+  Future<String> _path(int batchId) async {
+    if (!_pathOfBatch.containsKey(batchId)) await getByLab(_laboratoryId());
+    final base = _pathOfBatch[batchId];
+    if (base == null) throw const NotFoundFailure(code: 'BATCH_NOT_FOUND');
+    return '$base/$batchId';
+  }
 
   Future<BatchDto> getById(int batchId) async =>
-      BatchDto(Json.asMap(await _client.get('/batches/$batchId')));
+      BatchDto(Json.asMap(await _client.get(await _path(batchId))));
 
-  Future<List<RawMaterialUsageDto>> getUsage(int batchId) async => Json.asList(
-    await _client.get('/batches/$batchId/raw-materials'),
-  ).map(RawMaterialUsageDto.new).toList();
+  /// The raw materials consumed by the batch come with its traceability.
+  Future<List<RawMaterialUsageDto>> getUsage(int batchId) async {
+    final path = await _path(batchId);
+    final traceability = Json.asMap(await _client.get('$path/traceability'));
+    final usages = traceability['rawMaterials'];
+    if (usages == null) return const [];
+    return Json.asList(usages).map((usage) => RawMaterialUsageDto({...usage, 'batchId': batchId})).toList();
+  }
 
-  Future<BatchDto> updateStatus(int batchId, UpdateBatchStatusRequest request) async =>
-      BatchDto(Json.asMap(await _client.patch('/batches/$batchId', body: request.toJson())));
+  Future<void> release(int batchId, {required String releaseDate, required String notes}) async =>
+      _post('${await _path(batchId)}/releases', {'releaseDate': releaseDate, 'notes': notes});
+
+  Future<void> reject(int batchId, {required String rejectionDate, required String reason}) async =>
+      _post('${await _path(batchId)}/rejections', {'rejectionDate': rejectionDate, 'reason': reason});
+
+  Future<void> _post(String path, Map<String, dynamic> body) async {
+    await _client.post(path, body: body);
+  }
 }
 
 class BatchRepositoryImpl implements BatchRepository {
@@ -117,11 +124,8 @@ class BatchRepositoryImpl implements BatchRepository {
     required String releaseDate,
     required String notes,
   }) async {
-    final dto = await _remote.updateStatus(
-      batchId,
-      UpdateBatchStatusRequest.release(releaseDate: releaseDate, notes: notes),
-    );
-    return dto.toDomain();
+    await _remote.release(batchId, releaseDate: releaseDate, notes: notes);
+    return getById(batchId);
   }
 
   @override
@@ -130,10 +134,7 @@ class BatchRepositoryImpl implements BatchRepository {
     required String rejectionDate,
     required String reason,
   }) async {
-    final dto = await _remote.updateStatus(
-      batchId,
-      UpdateBatchStatusRequest.reject(rejectionDate: rejectionDate, reason: reason),
-    );
-    return dto.toDomain();
+    await _remote.reject(batchId, rejectionDate: rejectionDate, reason: reason);
+    return getById(batchId);
   }
 }

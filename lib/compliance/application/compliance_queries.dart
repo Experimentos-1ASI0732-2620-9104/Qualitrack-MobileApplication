@@ -1,27 +1,17 @@
 import '../../shared/domain/failure.dart';
+import '../../shared/domain/value_objects.dart';
 import '../domain/compliance.dart';
 
-/// Laboratory-wide alerts. The backend exposes alerts per equipment only, so
-/// they are aggregated with bounded concurrency (same as the Web dashboard).
+/// Laboratory-wide alerts, aggregated by the repository from the alerts of
+/// every environment of the laboratory.
 class GetLaboratoryAlerts {
   const GetLaboratoryAlerts(this._repository);
 
   final ComplianceRepository _repository;
 
-  static const int maxParallel = 4;
-
-  Future<List<DeviationAlert>> call(List<int> equipmentIds) async {
-    final byId = <int, DeviationAlert>{};
-    for (var i = 0; i < equipmentIds.length; i += maxParallel) {
-      final chunk = equipmentIds.skip(i).take(maxParallel).toList();
-      final groups = await Future.wait(chunk.map(_repository.getEquipmentAlerts));
-      for (var j = 0; j < chunk.length; j++) {
-        for (final alert in groups[j].where((a) => a.equipmentId == chunk[j])) {
-          byId[alert.id] = alert;
-        }
-      }
-    }
-    return byId.values.toList()..sort(DeviationAlert.compareByPriority);
+  Future<List<DeviationAlert>> call(LaboratoryId laboratoryId) async {
+    final alerts = await _repository.getLaboratoryAlerts(laboratoryId);
+    return [...alerts]..sort(DeviationAlert.compareByPriority);
   }
 }
 
@@ -44,15 +34,13 @@ class GetAlertDetail {
   Future<DeviationAlert> call(int alertId) => _repository.getAlert(alertId);
 }
 
-/// Command: UNRESOLVED → ACKNOWLEDGED. `performedBy` must be the signed-in
-/// user; the backend verifies it.
+/// Command: UNRESOLVED → ACKNOWLEDGED. The backend records the signed-in user.
 class AcknowledgeAlert {
   const AcknowledgeAlert(this._repository);
 
   final ComplianceRepository _repository;
 
-  Future<DeviationAlert> call({required int alertId, required int performedBy}) =>
-      _repository.acknowledge(alertId: alertId, performedBy: performedBy);
+  Future<DeviationAlert> call({required int alertId}) => _repository.acknowledge(alertId: alertId);
 }
 
 /// Command: → RESOLVED with mandatory resolution notes (backend rule).
@@ -61,16 +49,12 @@ class ResolveAlert {
 
   final ComplianceRepository _repository;
 
-  Future<DeviationAlert> call({
-    required int alertId,
-    required int performedBy,
-    required String resolutionNotes,
-  }) {
+  Future<DeviationAlert> call({required int alertId, required String resolutionNotes}) {
     final notes = resolutionNotes.trim();
     if (notes.isEmpty) {
       throw const BadRequestFailure(code: 'RESOLUTION_NOTES_REQUIRED');
     }
-    return _repository.resolve(alertId: alertId, performedBy: performedBy, resolutionNotes: notes);
+    return _repository.resolve(alertId: alertId, resolutionNotes: notes);
   }
 }
 

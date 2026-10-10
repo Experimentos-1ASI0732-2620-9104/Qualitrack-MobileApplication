@@ -79,12 +79,10 @@ class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
     required GetEquipment getEquipment,
     required AcknowledgeAlert acknowledge,
     required ResolveAlert resolve,
-    required int Function() currentUserId,
   }) : _getAlert = getAlert,
        _getEquipment = getEquipment,
        _acknowledge = acknowledge,
        _resolve = resolve,
-       _currentUserId = currentUserId,
        super(const AlertDetailState()) {
     on<AlertDetailRequested>(_onRequested);
     on<AlertAcknowledgeSubmitted>(_onAcknowledge);
@@ -96,7 +94,6 @@ class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
   final GetEquipment _getEquipment;
   final AcknowledgeAlert _acknowledge;
   final ResolveAlert _resolve;
-  final int Function() _currentUserId;
 
   Future<void> _onRequested(AlertDetailRequested event, Emitter<AlertDetailState> emit) async {
     emit(state.copyWith(alert: state.alert.loading()));
@@ -122,12 +119,12 @@ class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
 
   Future<void> _onAcknowledge(AlertAcknowledgeSubmitted event, Emitter<AlertDetailState> emit) =>
       _run(emit, AlertReviewAction.acknowledge, () {
-        return _acknowledge(alertId: alertId, performedBy: _currentUserId());
+        return _acknowledge(alertId: alertId);
       });
 
   Future<void> _onResolve(AlertResolveSubmitted event, Emitter<AlertDetailState> emit) =>
       _run(emit, AlertReviewAction.resolve, () {
-        return _resolve(alertId: alertId, performedBy: _currentUserId(), resolutionNotes: event.notes);
+        return _resolve(alertId: alertId, resolutionNotes: event.notes);
       });
 
   Future<void> _run(

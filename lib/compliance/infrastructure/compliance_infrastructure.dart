@@ -1,4 +1,6 @@
+import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/compliance.dart';
 
@@ -25,25 +27,6 @@ class DeviationAlertDto {
   );
 }
 
-/// Body of `PATCH /deviation-alerts/{id}` (`UpdateDeviationAlertStatusResource`).
-class UpdateAlertStatusRequest {
-  const UpdateAlertStatusRequest({
-    required this.status,
-    required this.performedBy,
-    this.resolutionNotes,
-  });
-
-  final AlertStatus status;
-  final int performedBy;
-  final String? resolutionNotes;
-
-  Map<String, dynamic> toJson() => {
-    'status': status.code,
-    'performedBy': performedBy,
-    'resolutionNotes': resolutionNotes,
-  };
-}
-
 class ComplianceEventDto {
   const ComplianceEventDto(this.json);
 
@@ -61,28 +44,43 @@ class ComplianceEventDto {
 }
 
 class ComplianceRemoteDataSource {
-  const ComplianceRemoteDataSource(this._client);
+  const ComplianceRemoteDataSource(this._client, this._environments, this._laboratoryId);
 
   final ApiClient _client;
+  final EnvironmentDirectory _environments;
+  final LaboratoryIdProvider _laboratoryId;
 
-  Future<List<DeviationAlertDto>> getEquipmentAlerts(int equipmentId) async => Json.asList(
-    await _client.get('/equipments/$equipmentId/deviation-alerts'),
-  ).map(DeviationAlertDto.new).toList();
-
-  Future<List<DeviationAlertDto>> getBatchAlerts(int batchId) async => Json.asList(
-    await _client.get('/batches/$batchId/deviation-alerts'),
-  ).map(DeviationAlertDto.new).toList();
+  /// Alerts are listed per environment (they include its container monitors),
+  /// so the laboratory alerts are the union of the environments.
+  Future<List<DeviationAlertDto>> getLaboratoryAlerts(int labId) async {
+    final alerts = <DeviationAlertDto>[];
+    for (final environmentId in await _environments.ids(labId)) {
+      final items = Json.asList(
+        await _client.get('/laboratories/$labId/environments/$environmentId/deviation-alerts'),
+      );
+      alerts.addAll(items.map(DeviationAlertDto.new));
+    }
+    return alerts;
+  }
 
   Future<DeviationAlertDto> getAlert(int alertId) async =>
       DeviationAlertDto(Json.asMap(await _client.get('/deviation-alerts/$alertId')));
 
-  Future<DeviationAlertDto> updateStatus(int alertId, UpdateAlertStatusRequest request) async =>
-      DeviationAlertDto(
-        Json.asMap(await _client.patch('/deviation-alerts/$alertId', body: request.toJson())),
-      );
+  Future<DeviationAlertDto> acknowledge(int alertId) async => DeviationAlertDto(
+    Json.asMap(await _client.post('/deviation-alerts/$alertId/acknowledgements')),
+  );
+
+  Future<DeviationAlertDto> resolve(int alertId, String resolutionNotes) async => DeviationAlertDto(
+    Json.asMap(
+      await _client.post(
+        '/deviation-alerts/$alertId/resolutions',
+        body: {'resolutionNotes': resolutionNotes},
+      ),
+    ),
+  );
 
   Future<List<ComplianceEventDto>> getEquipmentEvents(int equipmentId) async => Json.asList(
-    await _client.get('/equipments/$equipmentId/compliance-events'),
+    await _client.get('/laboratories/${_laboratoryId()}/equipments/$equipmentId/compliance-events'),
   ).map(ComplianceEventDto.new).toList();
 
   Future<List<ComplianceEventDto>> getBatchEvents(int batchId) async => Json.asList(
@@ -91,46 +89,33 @@ class ComplianceRemoteDataSource {
 }
 
 class ComplianceRepositoryImpl implements ComplianceRepository {
-  const ComplianceRepositoryImpl(this._remote);
+  const ComplianceRepositoryImpl(this._remote, this._laboratoryId);
 
   final ComplianceRemoteDataSource _remote;
+  final LaboratoryIdProvider _laboratoryId;
 
   @override
-  Future<List<DeviationAlert>> getEquipmentAlerts(int equipmentId) async =>
-      (await _remote.getEquipmentAlerts(equipmentId)).map((d) => d.toDomain()).toList();
+  Future<List<DeviationAlert>> getLaboratoryAlerts(LaboratoryId laboratoryId) async =>
+      (await _remote.getLaboratoryAlerts(laboratoryId.value)).map((d) => d.toDomain()).toList();
 
+  /// The backend has no per-batch alert route: the alerts of the laboratory
+  /// that reference the batch are the alerts of the batch.
   @override
-  Future<List<DeviationAlert>> getBatchAlerts(int batchId) async =>
-      (await _remote.getBatchAlerts(batchId)).map((d) => d.toDomain()).toList();
+  Future<List<DeviationAlert>> getBatchAlerts(int batchId) async {
+    final alerts = await _remote.getLaboratoryAlerts(_laboratoryId());
+    return alerts.map((d) => d.toDomain()).where((a) => a.batchId == batchId).toList();
+  }
 
   @override
   Future<DeviationAlert> getAlert(int alertId) async => (await _remote.getAlert(alertId)).toDomain();
 
   @override
-  Future<DeviationAlert> acknowledge({required int alertId, required int performedBy}) async {
-    final dto = await _remote.updateStatus(
-      alertId,
-      UpdateAlertStatusRequest(status: AlertStatus.acknowledged, performedBy: performedBy),
-    );
-    return dto.toDomain();
-  }
+  Future<DeviationAlert> acknowledge({required int alertId}) async =>
+      (await _remote.acknowledge(alertId)).toDomain();
 
   @override
-  Future<DeviationAlert> resolve({
-    required int alertId,
-    required int performedBy,
-    required String resolutionNotes,
-  }) async {
-    final dto = await _remote.updateStatus(
-      alertId,
-      UpdateAlertStatusRequest(
-        status: AlertStatus.resolved,
-        performedBy: performedBy,
-        resolutionNotes: resolutionNotes,
-      ),
-    );
-    return dto.toDomain();
-  }
+  Future<DeviationAlert> resolve({required int alertId, required String resolutionNotes}) async =>
+      (await _remote.resolve(alertId, resolutionNotes)).toDomain();
 
   @override
   Future<List<ComplianceEvent>> getEquipmentEvents(int equipmentId) async =>

@@ -176,7 +176,7 @@ void main() {
     blocTest<AlertsBloc, AlertsState>(
       'loads alerts and filters by status',
       build: () {
-        when(() => complianceRepo.getEquipmentAlerts(10)).thenAnswer((_) async => [
+        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => [
           alertFixture(id: 1),
           alertFixture(id: 2, status: AlertStatus.resolved),
         ]);
@@ -198,7 +198,7 @@ void main() {
     blocTest<AlertsBloc, AlertsState>(
       'no alerts → empty state',
       build: () {
-        when(() => complianceRepo.getEquipmentAlerts(10)).thenAnswer((_) async => []);
+        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => []);
         return build();
       },
       act: (bloc) => bloc.add(const AlertsRequested()),
@@ -211,7 +211,7 @@ void main() {
     blocTest<AlertsBloc, AlertsState>(
       'errors are exposed as failures',
       build: () {
-        when(() => complianceRepo.getEquipmentAlerts(10)).thenThrow(const ServerFailure(statusCode: 500));
+        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenThrow(const ServerFailure(statusCode: 500));
         return build();
       },
       act: (bloc) => bloc.add(const AlertsRequested()),
@@ -241,13 +241,12 @@ void main() {
       getEquipment: GetEquipment(equipmentRepo),
       acknowledge: AcknowledgeAlert(repo),
       resolve: ResolveAlert(repo),
-      currentUserId: () => 42,
     );
 
     blocTest<AlertDetailBloc, AlertDetailState>(
-      'acknowledge uses the signed-in user and updates the alert',
+      'acknowledge updates the alert',
       build: () {
-        when(() => repo.acknowledge(alertId: 1, performedBy: 42))
+        when(() => repo.acknowledge(alertId: 1))
             .thenAnswer((_) async => alertFixture(id: 1, status: AlertStatus.acknowledged));
         return build();
       },
@@ -260,14 +259,14 @@ void main() {
         expect(bloc.state.actionStatus, ReviewActionStatus.success);
         expect(bloc.state.alert.data?.status, AlertStatus.acknowledged);
         expect(bloc.state.equipmentName, 'Stability Chamber');
-        verify(() => repo.acknowledge(alertId: 1, performedBy: 42)).called(1);
+        verify(() => repo.acknowledge(alertId: 1)).called(1);
       },
     );
 
     blocTest<AlertDetailBloc, AlertDetailState>(
       'backend rejection is shown and the alert is kept',
       build: () {
-        when(() => repo.resolve(alertId: 1, performedBy: 42, resolutionNotes: 'Done'))
+        when(() => repo.resolve(alertId: 1, resolutionNotes: 'Done'))
             .thenThrow(const BadRequestFailure(message: 'Alert is already resolved'));
         return build();
       },

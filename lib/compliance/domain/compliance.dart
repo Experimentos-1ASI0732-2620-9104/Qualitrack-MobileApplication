@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../shared/domain/value_objects.dart';
+
 enum AlertStatus {
   unresolved('UNRESOLVED'),
   acknowledged('ACKNOWLEDGED'),
@@ -169,15 +171,11 @@ final class ComplianceEvent extends Equatable {
 }
 
 abstract interface class ComplianceRepository {
-  Future<List<DeviationAlert>> getEquipmentAlerts(int equipmentId);
+  Future<List<DeviationAlert>> getLaboratoryAlerts(LaboratoryId laboratoryId);
   Future<List<DeviationAlert>> getBatchAlerts(int batchId);
   Future<DeviationAlert> getAlert(int alertId);
-  Future<DeviationAlert> acknowledge({required int alertId, required int performedBy});
-  Future<DeviationAlert> resolve({
-    required int alertId,
-    required int performedBy,
-    required String resolutionNotes,
-  });
+  Future<DeviationAlert> acknowledge({required int alertId});
+  Future<DeviationAlert> resolve({required int alertId, required String resolutionNotes});
   Future<List<ComplianceEvent>> getEquipmentEvents(int equipmentId);
   Future<List<ComplianceEvent>> getBatchEvents(int batchId);
 }

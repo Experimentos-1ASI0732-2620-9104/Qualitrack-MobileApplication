@@ -28,6 +28,7 @@ final class ProductionBatch extends Equatable {
     required this.labId,
     required this.batchNumber,
     required this.status,
+    this.environmentId,
     this.productId,
     this.productName,
     this.quantity,
@@ -39,6 +40,7 @@ final class ProductionBatch extends Equatable {
 
   final int id;
   final int labId;
+  final int? environmentId;
   final int? productId;
   final String? productName;
   final String batchNumber;
@@ -67,6 +69,7 @@ final class ProductionBatch extends Equatable {
   List<Object?> get props => [
     id,
     labId,
+    environmentId,
     productId,
     productName,
     batchNumber,

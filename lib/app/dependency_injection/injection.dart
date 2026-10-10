@@ -43,6 +43,7 @@ import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/configuration/api_config.dart';
 import '../../shared/infrastructure/http/api_client.dart';
 import '../../shared/infrastructure/http/auth_interceptor.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/storage/secure_key_value_store.dart';
 import '../../subscription/application/billing_queries.dart';
 import '../../subscription/domain/subscription.dart';
@@ -77,6 +78,8 @@ Future<void> configureDependencies({
     () => ApiClient.create(config: sl(), authInterceptor: sl()),
   );
 
+  sl.registerLazySingleton(() => EnvironmentDirectory(sl()));
+
   // IAM
   sl.registerLazySingleton(() => IamRemoteDataSource(sl()));
   sl.registerLazySingleton<AuthRepository>(() => AuthRepositoryImpl(sl()));
@@ -91,13 +94,13 @@ Future<void> configureDependencies({
   );
 
   // Laboratory Management
-  sl.registerLazySingleton(() => LaboratoryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => LaboratoryRemoteDataSource(sl(), sl()));
   sl.registerLazySingleton<LaboratoryRepository>(() => LaboratoryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetLaboratory(sl()));
   sl.registerLazySingleton(() => GetProducts(sl()));
 
   // Equipment Management
-  sl.registerLazySingleton(() => EquipmentRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => EquipmentRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<EquipmentRepository>(() => EquipmentRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetEquipments(sl()));
   sl.registerLazySingleton(() => GetEquipment(sl()));
@@ -105,7 +108,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetBpmConfigs(sl()));
 
   // Tracking & Telemetry
-  sl.registerLazySingleton(() => TelemetryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => TelemetryRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<TelemetryRepository>(() => TelemetryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetTelemetryStatus(sl()));
   sl.registerLazySingleton(() => GetTelemetryStatuses(sl()));
@@ -113,8 +116,8 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetTelemetryHistory(sl()));
 
   // Compliance & Alerting
-  sl.registerLazySingleton(() => ComplianceRemoteDataSource(sl()));
-  sl.registerLazySingleton<ComplianceRepository>(() => ComplianceRepositoryImpl(sl()));
+  sl.registerLazySingleton(() => ComplianceRemoteDataSource(sl(), sl(), _laboratoryIdValue));
+  sl.registerLazySingleton<ComplianceRepository>(() => ComplianceRepositoryImpl(sl(), _laboratoryIdValue));
   sl.registerLazySingleton(() => GetLaboratoryAlerts(sl()));
   sl.registerLazySingleton(() => GetBatchAlerts(sl()));
   sl.registerLazySingleton(() => GetAlertDetail(sl()));
@@ -124,7 +127,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetBatchComplianceEvents(sl()));
 
   // Product Batch Management
-  sl.registerLazySingleton(() => BatchRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => BatchRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<BatchRepository>(() => BatchRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetBatches(sl()));
   sl.registerLazySingleton(() => GetBatchDetail(sl()));
@@ -133,14 +136,14 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => RejectExistingBatch(sl()));
 
   // Inventory Management
-  sl.registerLazySingleton(() => InventoryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => InventoryRemoteDataSource(sl(), sl()));
   sl.registerLazySingleton<InventoryRepository>(() => InventoryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetInventoryMaterials(sl()));
   sl.registerLazySingleton(() => GetMaterialReceipts(sl()));
   sl.registerLazySingleton(() => GetInventoryMovements(sl()));
 
   // Reporting & Audit
-  sl.registerLazySingleton(() => ReportingRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => ReportingRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<ReportingRepository>(() => ReportingRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetKpiDashboard(sl()));
   sl.registerLazySingleton(() => GetReportHistory(sl()));
@@ -169,6 +172,8 @@ Future<void> configureDependencies({
 
   _registerBlocs();
 }
+
+int _laboratoryIdValue() => _laboratoryId().value;
 
 LaboratoryId _laboratoryId() => sl<SessionController>().requireLaboratoryId();
 
@@ -225,7 +230,6 @@ void _registerBlocs() {
       getEquipment: sl(),
       acknowledge: sl(),
       resolve: sl(),
-      currentUserId: () => _session().userId,
     ),
   );
   sl.registerFactory(() => BatchesBloc(getBatches: sl(), laboratoryId: _laboratoryId));
