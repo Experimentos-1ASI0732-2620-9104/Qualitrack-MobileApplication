@@ -4,6 +4,7 @@ import 'package:qualitrack_mobile/batch/application/batch_use_cases.dart';
 import 'package:qualitrack_mobile/compliance/application/compliance_queries.dart';
 import 'package:qualitrack_mobile/iam/application/iam_use_cases.dart';
 import 'package:qualitrack_mobile/shared/domain/failure.dart';
+import 'package:qualitrack_mobile/shared/domain/value_objects.dart';
 import 'package:qualitrack_mobile/tracking/application/telemetry_queries.dart';
 import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
 
@@ -64,18 +65,14 @@ void main() {
   });
 
   group('Compliance', () {
-    test('aggregates alerts per equipment, deduplicates and sorts', () async {
+    test('sorts the laboratory alerts by priority', () async {
       final repo = MockComplianceRepository();
-      when(() => repo.getEquipmentAlerts(1)).thenAnswer((_) async => [
+      when(() => repo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => [
         alertFixture(id: 1, equipmentId: 1, timestamp: DateTime.utc(2026, 1, 1)),
-      ]);
-      when(() => repo.getEquipmentAlerts(2)).thenAnswer((_) async => [
         alertFixture(id: 2, equipmentId: 2, timestamp: DateTime.utc(2026, 2, 1)),
-        // An alert that does not belong to the requested equipment is ignored.
-        alertFixture(id: 9, equipmentId: 1),
       ]);
 
-      final alerts = await GetLaboratoryAlerts(repo)([1, 2]);
+      final alerts = await GetLaboratoryAlerts(repo)(const LaboratoryId(7));
 
       expect(alerts.map((a) => a.id), [2, 1]);
     });
@@ -83,7 +80,7 @@ void main() {
     test('resolve requires notes before calling the backend', () {
       final repo = MockComplianceRepository();
       expect(
-        () => ResolveAlert(repo)(alertId: 1, performedBy: 42, resolutionNotes: '  '),
+        () => ResolveAlert(repo)(alertId: 1, resolutionNotes: '  '),
         throwsA(isA<BadRequestFailure>()),
       );
       verifyNoMoreInteractions(repo);

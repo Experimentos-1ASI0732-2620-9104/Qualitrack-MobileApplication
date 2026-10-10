@@ -135,17 +135,12 @@ void main() {
       expect(session.token.expiresAt, DateTime.utc(2030));
     });
 
-    test('deviation alert and update request', () {
+    test('deviation alert', () {
       final alert = const DeviationAlertDto(alertJson).toDomain();
       expect(alert.status, AlertStatus.unresolved);
       expect(alert.severity, AlertSeverity.critical);
       expect(alert.recordedValue, 40);
       expect(alert.timestamp, DateTime.utc(2026, 9, 3, 17, 1, 24));
-      expect(
-        const UpdateAlertStatusRequest(status: AlertStatus.resolved, performedBy: 42, resolutionNotes: 'Calibrated')
-            .toJson(),
-        {'status': 'RESOLVED', 'performedBy': 42, 'resolutionNotes': 'Calibrated'},
-      );
     });
 
     test('batch and status update request', () {
@@ -245,21 +240,41 @@ void main() {
       expect(store.values, isEmpty);
     });
 
-    test('compliance repository sends the lifecycle command', () async {
+    test('compliance repository posts the acknowledgement and the resolution', () async {
       final client = MockApiClient();
-      when(() => client.patch('/deviation-alerts/2', body: any(named: 'body')))
+      when(() => client.post('/deviation-alerts/2/acknowledgements'))
           .thenAnswer((_) async => {...alertJson, 'status': 'ACKNOWLEDGED', 'acknowledgedBy': 42});
-      final repo = ComplianceRepositoryImpl(ComplianceRemoteDataSource(client));
+      when(() => client.post('/deviation-alerts/2/resolutions', body: {'resolutionNotes': 'Calibrated'}))
+          .thenAnswer((_) async => {...alertJson, 'status': 'RESOLVED', 'resolvedBy': 42});
+      final repo = ComplianceRepositoryImpl(
+        ComplianceRemoteDataSource(client, EnvironmentDirectory(client), () => 7),
+        () => 7,
+      );
 
-      final alert = await repo.acknowledge(alertId: 2, performedBy: 42);
+      expect((await repo.acknowledge(alertId: 2)).status, AlertStatus.acknowledged);
+      expect((await repo.resolve(alertId: 2, resolutionNotes: 'Calibrated')).status, AlertStatus.resolved);
+    });
 
-      expect(alert.status, AlertStatus.acknowledged);
-      verify(
-        () => client.patch(
-          '/deviation-alerts/2',
-          body: {'status': 'ACKNOWLEDGED', 'performedBy': 42, 'resolutionNotes': null},
-        ),
-      ).called(1);
+    test('batch alerts are the laboratory alerts that reference the batch', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/deviation-alerts')).thenAnswer(
+        (_) async => [
+          {...alertJson, 'id': 1, 'batchId': 4},
+          {...alertJson, 'id': 2, 'batchId': 5},
+          {...alertJson, 'id': 3, 'batchId': null},
+        ],
+      );
+      final repo = ComplianceRepositoryImpl(
+        ComplianceRemoteDataSource(client, EnvironmentDirectory(client), () => 7),
+        () => 7,
+      );
+
+      expect((await repo.getBatchAlerts(4)).map((a) => a.id), [1]);
     });
 
     test('repositories filter data of other laboratories', () async {

@@ -116,8 +116,8 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetTelemetryHistory(sl()));
 
   // Compliance & Alerting
-  sl.registerLazySingleton(() => ComplianceRemoteDataSource(sl()));
-  sl.registerLazySingleton<ComplianceRepository>(() => ComplianceRepositoryImpl(sl()));
+  sl.registerLazySingleton(() => ComplianceRemoteDataSource(sl(), sl(), _laboratoryIdValue));
+  sl.registerLazySingleton<ComplianceRepository>(() => ComplianceRepositoryImpl(sl(), _laboratoryIdValue));
   sl.registerLazySingleton(() => GetLaboratoryAlerts(sl()));
   sl.registerLazySingleton(() => GetBatchAlerts(sl()));
   sl.registerLazySingleton(() => GetAlertDetail(sl()));
@@ -230,7 +230,6 @@ void _registerBlocs() {
       getEquipment: sl(),
       acknowledge: sl(),
       resolve: sl(),
-      currentUserId: () => _session().userId,
     ),
   );
   sl.registerFactory(() => BatchesBloc(getBatches: sl(), laboratoryId: _laboratoryId));

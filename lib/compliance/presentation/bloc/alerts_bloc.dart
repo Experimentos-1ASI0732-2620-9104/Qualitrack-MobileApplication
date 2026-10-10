@@ -96,7 +96,7 @@ class AlertsBloc extends Bloc<AlertsEvent, AlertsState> {
     ));
     try {
       final equipments = await _getEquipments(_laboratoryId());
-      final alerts = await _getAlerts(equipments.map((e) => e.id).toList());
+      final alerts = await _getAlerts(_laboratoryId());
       final data = AlertsData(
         alerts: alerts,
         equipmentNames: {for (final e in equipments) e.id: e.name},
