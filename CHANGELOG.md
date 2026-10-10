@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-10-10
+
+### Fixed
+- Every screen except sign-in failed against the deployed platform v1.0.0, which reorganized its REST API. Equipment, inventory, billing, reports, products, alerts, batches and telemetry now use the laboratory and environment scoped routes.
+- Alert acknowledge/resolve and batch release/reject use the new POST actions; the backend takes the user from the token, so `performedBy` is no longer sent.
+- Telemetry is read per IoT device; readings in `WARNING` or `CRITICAL` state are shown as anomalies in the chart.
+- Billing history reads the laboratory subscriptions list and an empty list means no active subscription.
+
+### Changed
+- Products, alerts and raw materials are aggregated from the environments of the laboratory (`EnvironmentDirectory`).
+- `docs/mobile-api-mapping.md` rewritten against the platform v1.0.0 controllers.
+- Test suite grows to 91 tests.
+
 ## [1.0.0] - 2026-10-10
 
 ### Added
