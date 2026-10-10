@@ -121,17 +121,26 @@ class TelemetryRemoteDataSource {
 }
 
 class TelemetryRepositoryImpl implements TelemetryRepository {
-  const TelemetryRepositoryImpl(this._remote);
+  TelemetryRepositoryImpl(this._remote, {DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
   final TelemetryRemoteDataSource _remote;
+  final DateTime Function() _clock;
 
   @override
   Future<EquipmentTelemetryStatus> getStatus(int equipmentId) async =>
       (await _remote.getStatus(equipmentId)).toDomain();
 
   @override
-  Future<List<Measurement>> getLatestMeasurements(int equipmentId) async =>
-      (await _remote.getReadings(equipmentId)).map((r) => MeasurementDto(r).toDomain()).toList(growable: false);
+  Future<List<Measurement>> getLatestMeasurements(
+    int equipmentId, {
+    Duration window = TelemetryRepository.defaultLatestWindow,
+  }) async {
+    final readings = await _remote.getReadings(
+      equipmentId,
+      from: toIsoMillis(_clock().subtract(window)),
+    );
+    return readings.map((r) => MeasurementDto(r).toDomain()).toList(growable: false);
+  }
 
   /// Same wire format as Web: `Date.toISOString()` (UTC, milliseconds, `Z`).
   @override

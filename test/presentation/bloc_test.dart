@@ -386,6 +386,26 @@ void main() {
       },
     );
 
+    blocTest<TelemetryDashboardBloc, TelemetryState>(
+      'a device silent for the last hour falls back to a wider window once',
+      build: () {
+        when(() => telemetryRepo.getLatestMeasurements(10)).thenAnswer((_) async => const []);
+        when(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).thenAnswer(
+          (_) async => [
+            Measurement(id: 9, equipmentId: 10, parameterName: 'Temperature', value: 8, timestamp: DateTime.utc(2026, 6, 14)),
+          ],
+        );
+        return build();
+      },
+      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 10)),
+      wait: const Duration(milliseconds: 70),
+      verify: (bloc) {
+        // The silent live window keeps the readings of the fallback.
+        expect(bloc.state.snapshot.data?.readings.single.latest.value, 8);
+        verify(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).called(1);
+      },
+    );
+
     test('closing the bloc cancels the polling timer', () async {
       final bloc = build()..add(const TelemetryStarted());
       await Future<void>.delayed(const Duration(milliseconds: 30));
