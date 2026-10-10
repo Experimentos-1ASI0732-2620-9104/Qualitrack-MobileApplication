@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-10-10
+
+### Fixed
+- Telemetry showed an error for the equipment without an IoT device (the platform answers `404 DEVICE_NOT_FOUND`), and the first equipment alphabetically opened in error. The telemetry dashboard and the raw log now list only the equipment with a device, and the connection statuses are requested only for them.
+
+### Changed
+- The platform answers every reading of the requested period, so the live telemetry asks only for the last hour (about 60 KB instead of 870 KB per container), a device silent for that hour falls back to the last 24 hours once, the history refreshes every 5 minutes instead of every minute, and the trends of the equipment detail cover the last 6 hours instead of 7 days.
+- Test suite grows to 97 tests.
+
 ## [1.0.2] - 2026-10-10
 
 ### Fixed
