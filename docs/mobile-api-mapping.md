@@ -16,6 +16,7 @@ La v1.0.0 del backend reorganizó la API: los recursos cuelgan de `laboratories/
 | Roles | `ROLE_ADMIN`, `ROLE_QA_MANAGER`, `ROLE_LAB_OPERATOR`. Liberar y rechazar lotes exige `ROLE_QA_MANAGER` o `ROLE_ADMIN` en el servidor. |
 | Errores | `ErrorResource {code, message, details}`. `VALIDATION_ERROR`→400, `*_NOT_FOUND`→404, `*_CONFLICT`→409, `UNEXPECTED_ERROR`→500, `ACCESS_DENIED`→403. |
 | Paginación | No existe en ningún endpoint. Todas las listas son completas. |
+| Periodos | Telemetría y tendencias devuelven todas las lecturas del periodo (24 h por defecto: ~870 KB por contenedor; 7 días por defecto en tendencias: ~1,8 MB por entorno). La app pide solo la última hora para las lecturas en vivo y las últimas 6 h para las tendencias (`from` sin `to`). |
 | Fechas | Alertas y eventos guardan `timestamp` como **String** ISO-8601. Las lecturas de telemetría usan `measuredAt` y el filtro `from`/`to` acepta ISO-8601 con offset (por defecto, últimas 24 h). |
 
 ## Enums reales
@@ -107,6 +108,7 @@ La v1.0.0 del backend reorganizó la API: los recursos cuelgan de `laboratories/
 2. **Agregación por entorno**: no existen listados por laboratorio de alertas, productos ni materias primas; la app consulta cada entorno (`EnvironmentDirectory`) y los une.
 3. **Alertas por lote**: no existe `GET /batches/{id}/deviation-alerts`; se filtran las alertas del laboratorio por `batchId`.
 4. **Anomalías de telemetría**: ya no hay un campo `isAnomaly`; se consideran anomalías las lecturas con `state` `WARNING` o `CRITICAL`. Las lecturas sin valor numérico (por ejemplo `RFID_TAG`) no se grafican.
-5. **Estado de telemetría**: sólo existe `CONNECTED` / `REQUIRES_REVIEW` (la app lo muestra como operativo / sin conexión). Un equipo sin dispositivo IoT (`deviceType` nulo) no tiene telemetría.
-6. **Métricas del mockup sin fuente** (latencia en ms, “Sampling rate”, distribución porcentual): se omiten; `overallHealthScore` sólo se muestra si el KPI dashboard lo trae (el backend lo calcula en cada petición y hoy lo devuelve nulo).
-7. **Recibo PDF de pagos**: no hay endpoint → no se muestra.
+5. **Telemetría solo con dispositivo**: únicamente los equipos con `deviceType` (monitor ambiental o de contenedor) tienen telemetría; para los demás el backend responde `404 DEVICE_NOT_FOUND` y la app no los lista en Telemetría.
+6. **Estado de telemetría**: sólo existe `CONNECTED` / `REQUIRES_REVIEW` (la app lo muestra como operativo / sin conexión). Un equipo sin dispositivo IoT (`deviceType` nulo) no tiene telemetría.
+7. **Métricas del mockup sin fuente** (latencia en ms, “Sampling rate”, distribución porcentual): se omiten; `overallHealthScore` sólo se muestra si el KPI dashboard lo trae (el backend lo calcula en cada petición y hoy lo devuelve nulo).
+8. **Recibo PDF de pagos**: no hay endpoint → no se muestra.

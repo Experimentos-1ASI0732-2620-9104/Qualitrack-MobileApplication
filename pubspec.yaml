@@ -1,7 +1,7 @@
 name: qualitrack_mobile
 description: "QualiTrack Mobile - companion monitoring and review app for the QualiTrack pharmaceutical QMS."
 publish_to: 'none'
-version: 1.0.2+3
+version: 1.0.3+4
 
 environment:
   sdk: ^3.7.0
