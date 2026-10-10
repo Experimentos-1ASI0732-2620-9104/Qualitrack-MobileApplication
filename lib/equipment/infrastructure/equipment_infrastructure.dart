@@ -1,5 +1,6 @@
 import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/equipment.dart';
 
@@ -13,6 +14,7 @@ class EquipmentDto {
     return Equipment(
       id: Json.requireInt(json, 'id'),
       laboratoryId: Json.requireInt(json, 'laboratoryId'),
+      environmentId: Json.optInt(json, 'environmentId'),
       name: Json.requireString(json, 'name'),
       type: Json.optString(json, 'type'),
       model: Json.optString(json, 'model'),
@@ -56,23 +58,33 @@ class BpmParameterConfigDto {
 }
 
 class EquipmentRemoteDataSource {
-  const EquipmentRemoteDataSource(this._client);
+  const EquipmentRemoteDataSource(this._client, this._laboratoryId);
 
   final ApiClient _client;
+  final LaboratoryIdProvider _laboratoryId;
+
+  String get _base => '/laboratories/${_laboratoryId()}/equipments';
 
   Future<List<EquipmentDto>> getByLaboratory(int labId) async => Json.asList(
-    await _client.get('/equipments', query: {'labId': labId}),
+    await _client.get('/laboratories/$labId/equipments'),
   ).map(EquipmentDto.new).toList();
 
   Future<EquipmentDto> getById(int id) async =>
-      EquipmentDto(Json.asMap(await _client.get('/equipments/$id')));
+      EquipmentDto(Json.asMap(await _client.get('$_base/$id')));
 
-  Future<List<MaintenanceRecordDto>> getMaintenance(int id) async => Json.asList(
-    await _client.get('/equipments/$id/maintenance-records'),
-  ).map(MaintenanceRecordDto.new).toList();
+  /// Maintenance hangs from the environment of the equipment; equipment that
+  /// is not associated to an environment has no maintenance history.
+  Future<List<MaintenanceRecordDto>> getMaintenance(int id) async {
+    final environmentId = (await getById(id)).json['environmentId'];
+    if (environmentId == null) return const [];
+    final path = '/laboratories/${_laboratoryId()}/environments/$environmentId/equipments/$id';
+    return Json.asList(
+      await _client.get('$path/maintenance-records'),
+    ).map(MaintenanceRecordDto.new).toList();
+  }
 
   Future<List<BpmParameterConfigDto>> getBpmConfigs(int id) async => Json.asList(
-    await _client.get('/equipments/$id/bpm-configs'),
+    await _client.get('$_base/$id/bpm-configs'),
   ).map(BpmParameterConfigDto.new).toList();
 }
 

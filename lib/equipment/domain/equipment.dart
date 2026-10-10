@@ -30,6 +30,7 @@ final class Equipment extends Equatable {
     required this.laboratoryId,
     required this.name,
     required this.status,
+    this.environmentId,
     this.rawStatus,
     this.type,
     this.model,
@@ -39,6 +40,7 @@ final class Equipment extends Equatable {
 
   final int id;
   final int laboratoryId;
+  final int? environmentId;
   final String name;
   final String? type;
   final String? model;
@@ -65,6 +67,7 @@ final class Equipment extends Equatable {
   List<Object?> get props => [
     id,
     laboratoryId,
+    environmentId,
     name,
     type,
     model,

@@ -43,6 +43,7 @@ import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/configuration/api_config.dart';
 import '../../shared/infrastructure/http/api_client.dart';
 import '../../shared/infrastructure/http/auth_interceptor.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/storage/secure_key_value_store.dart';
 import '../../subscription/application/billing_queries.dart';
 import '../../subscription/domain/subscription.dart';
@@ -77,6 +78,8 @@ Future<void> configureDependencies({
     () => ApiClient.create(config: sl(), authInterceptor: sl()),
   );
 
+  sl.registerLazySingleton(() => EnvironmentDirectory(sl()));
+
   // IAM
   sl.registerLazySingleton(() => IamRemoteDataSource(sl()));
   sl.registerLazySingleton<AuthRepository>(() => AuthRepositoryImpl(sl()));
@@ -97,7 +100,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetProducts(sl()));
 
   // Equipment Management
-  sl.registerLazySingleton(() => EquipmentRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => EquipmentRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<EquipmentRepository>(() => EquipmentRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetEquipments(sl()));
   sl.registerLazySingleton(() => GetEquipment(sl()));
@@ -169,6 +172,8 @@ Future<void> configureDependencies({
 
   _registerBlocs();
 }
+
+int _laboratoryIdValue() => _laboratoryId().value;
 
 LaboratoryId _laboratoryId() => sl<SessionController>().requireLaboratoryId();
 

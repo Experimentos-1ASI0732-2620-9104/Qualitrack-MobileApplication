@@ -261,15 +261,38 @@ void main() {
 
     test('repositories filter data of other laboratories', () async {
       final client = MockApiClient();
-      when(() => client.get('/equipments', query: {'labId': 7})).thenAnswer(
+      when(() => client.get('/laboratories/7/equipments')).thenAnswer(
         (_) async => [
           {'id': 1, 'laboratoryId': 7, 'name': 'A', 'status': 'OPERATIONAL'},
           {'id': 2, 'laboratoryId': 8, 'name': 'B', 'status': 'OPERATIONAL'},
         ],
       );
-      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client));
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
       final items = await repo.getByLaboratory(const LaboratoryId(7));
       expect(items.map((e) => e.id), [1]);
+    });
+
+    test('equipment maintenance uses the environment of the equipment', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/equipments/5/maintenance-records')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'equipmentId': 5, 'maintenanceDate': '2026-05-20', 'type': 'PREVENTIVE'},
+        ],
+      );
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
+      expect((await repo.getMaintenance(5)).single.type, 'PREVENTIVE');
+    });
+
+    test('equipment without environment has no maintenance history', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': null, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
+      expect(await repo.getMaintenance(5), isEmpty);
     });
 
     test('missing active subscription (404) becomes null', () async {
