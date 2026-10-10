@@ -15,6 +15,7 @@ class EquipmentDto {
       id: Json.requireInt(json, 'id'),
       laboratoryId: Json.requireInt(json, 'laboratoryId'),
       environmentId: Json.optInt(json, 'environmentId'),
+      deviceType: Json.optString(json, 'deviceType'),
       name: Json.requireString(json, 'name'),
       type: Json.optString(json, 'type'),
       model: Json.optString(json, 'model'),

@@ -108,7 +108,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetBpmConfigs(sl()));
 
   // Tracking & Telemetry
-  sl.registerLazySingleton(() => TelemetryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => TelemetryRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<TelemetryRepository>(() => TelemetryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetTelemetryStatus(sl()));
   sl.registerLazySingleton(() => GetTelemetryStatuses(sl()));

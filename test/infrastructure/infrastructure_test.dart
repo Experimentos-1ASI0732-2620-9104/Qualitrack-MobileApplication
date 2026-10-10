@@ -162,23 +162,29 @@ void main() {
 
     test('telemetry, equipment, inventory and subscription resources', () {
       final status = const TelemetryStatusDto({
-        'id': null,
-        'equipmentId': 5,
-        'isOnline': false,
-        'currentStatus': 'OFFLINE',
-        'lastHeartbeat': null,
-        'createdAt': null,
+        'deviceId': 5,
+        'connectionStatus': 'REQUIRES_REVIEW',
+        'lastCommunicationAt': null,
+        'expectedPeriodSeconds': 300,
       }).toDomain();
+      expect(status.equipmentId, 5);
+      expect(status.isOnline, isFalse);
       expect(status.currentStatus, TelemetryStatus.offline);
+      expect(
+        const TelemetryStatusDto({'deviceId': 5, 'connectionStatus': 'CONNECTED'}).toDomain().currentStatus,
+        TelemetryStatus.operational,
+      );
 
       final point = const TelemetryHistoryPointDto({
         'id': 1,
         'equipmentId': 5,
-        'parameterName': 'Temperature',
-        'recordedValue': 38.6,
-        'timestamp': 'not-a-date',
-        'isAnomaly': true,
+        'metric': 'TEMPERATURE',
+        'value': 38.6,
+        'measuredAt': 'not-a-date',
+        'state': 'CRITICAL',
       }).toDomain();
+      expect(point.isAnomaly, isTrue);
+      expect(point.parameterName, 'TEMPERATURE');
       expect(point.timestamp, isNull);
       expect(point.rawTimestamp, 'not-a-date');
 
@@ -322,6 +328,59 @@ void main() {
       when(() => client.get('/laboratories/7/batches')).thenAnswer((_) async => <Object>[]);
       final repo = BatchRepositoryImpl(BatchRemoteDataSource(client, () => 7));
       await expectLater(repo.getById(99), throwsA(isA<NotFoundFailure>()));
+    });
+
+    test('container monitor readings come from its own route and become history points', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': 'CONTAINER_MONITOR', 'name': 'M'},
+      );
+      when(
+        () => client.get(
+          '/laboratories/7/environments/2/container-monitors/5/telemetry-measurements',
+          query: {'from': null, 'to': null},
+        ),
+      ).thenAnswer(
+        (_) async => [
+          {'id': 1, 'deviceId': 5, 'metric': 'TEMPERATURE', 'value': 31.5, 'unit': '°C', 'state': 'WARNING', 'measuredAt': '2026-10-10T10:00:00Z'},
+          {'id': 2, 'deviceId': 5, 'metric': 'RFID_TAG', 'value': null, 'textValue': 'AB12', 'measuredAt': '2026-10-10T10:01:00Z'},
+        ],
+      );
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+
+      final history = await repo.getHistory(5);
+      expect(history.single.isAnomaly, isTrue);
+      expect(history.single.equipmentId, 5);
+      expect((await repo.getLatestMeasurements(5)).single.value, 31.5);
+    });
+
+    test('environmental device readings come from the environment route', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/6')).thenAnswer(
+        (_) async => {'id': 6, 'laboratoryId': 7, 'environmentId': 3, 'deviceType': 'ENVIRONMENTAL_DEVICE', 'name': 'E'},
+      );
+      when(
+        () => client.get('/laboratories/7/environments/3/telemetry-measurements', query: {'from': null, 'to': null}),
+      ).thenAnswer((_) async => <Object>[]);
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+      expect(await repo.getLatestMeasurements(6), isEmpty);
+    });
+
+    test('device status is read from the device route; equipment without a device is not found', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': 'CONTAINER_MONITOR', 'name': 'M'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/devices/5/telemetry-status')).thenAnswer(
+        (_) async => {'deviceId': 5, 'connectionStatus': 'CONNECTED', 'lastCommunicationAt': '2026-10-10T10:00:00Z'},
+      );
+      when(() => client.get('/laboratories/7/equipments/8')).thenAnswer(
+        (_) async => {'id': 8, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': null, 'name': 'Balance'},
+      );
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+
+      expect((await repo.getStatus(5)).isOnline, isTrue);
+      await expectLater(repo.getStatus(8), throwsA(isA<NotFoundFailure>()));
     });
 
     test('equipment maintenance uses the environment of the equipment', () async {
