@@ -1,5 +1,7 @@
+import '../../shared/domain/failure.dart';
 import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/inventory.dart';
 
@@ -66,23 +68,43 @@ class InventoryMovementDto {
 
 /// Read-only access to the Inventory context. Receipt registration, reviews,
 /// consumptions and legacy imports remain in QualiTrack Web.
+///
+/// Raw materials belong to an environment, so the laboratory inventory is the
+/// union of the materials of its environments.
 class InventoryRemoteDataSource {
-  const InventoryRemoteDataSource(this._client);
+  InventoryRemoteDataSource(this._client, this._environments);
 
   final ApiClient _client;
+  final EnvironmentDirectory _environments;
+  final Map<int, int> _environmentOfMaterial = {};
 
-  String _base(int labId) => '/laboratories/$labId/inventory';
+  String _base(int labId, int environmentId) => '/laboratories/$labId/environments/$environmentId/raw-materials';
 
-  Future<List<InventoryMaterialDto>> getMaterials(int labId) async => Json.asList(
-    await _client.get('${_base(labId)}/materials'),
-  ).map(InventoryMaterialDto.new).toList();
+  Future<List<InventoryMaterialDto>> getMaterials(int labId) async {
+    final materials = <InventoryMaterialDto>[];
+    for (final environmentId in await _environments.ids(labId)) {
+      final items = Json.asList(await _client.get(_base(labId, environmentId)));
+      for (final item in items) {
+        _environmentOfMaterial[Json.requireInt(item, 'id')] = environmentId;
+        materials.add(InventoryMaterialDto(item));
+      }
+    }
+    return materials;
+  }
+
+  Future<String> _materialPath(int labId, int materialId) async {
+    if (!_environmentOfMaterial.containsKey(materialId)) await getMaterials(labId);
+    final environmentId = _environmentOfMaterial[materialId];
+    if (environmentId == null) throw const NotFoundFailure(code: 'RAW_MATERIAL_NOT_FOUND');
+    return '${_base(labId, environmentId)}/$materialId';
+  }
 
   Future<List<InventoryReceiptDto>> getReceipts(int labId, int materialId) async => Json.asList(
-    await _client.get('${_base(labId)}/materials/$materialId/receipts'),
+    await _client.get('${await _materialPath(labId, materialId)}/batches'),
   ).map(InventoryReceiptDto.new).toList();
 
   Future<List<InventoryMovementDto>> getMovements(int labId, int materialId) async => Json.asList(
-    await _client.get('${_base(labId)}/materials/$materialId/movements'),
+    await _client.get('${await _materialPath(labId, materialId)}/movements'),
   ).map(InventoryMovementDto.new).toList();
 }
 

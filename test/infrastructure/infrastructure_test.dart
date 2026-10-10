@@ -17,7 +17,10 @@ import 'package:qualitrack_mobile/shared/domain/value_objects.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/configuration/api_config.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/api_exception_mapper.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/auth_interceptor.dart';
+import 'package:qualitrack_mobile/shared/infrastructure/http/environment_directory.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/json_utils.dart';
+import 'package:qualitrack_mobile/laboratory/infrastructure/laboratory_infrastructure.dart';
+import 'package:qualitrack_mobile/reporting/infrastructure/reporting_infrastructure.dart';
 import 'package:qualitrack_mobile/subscription/infrastructure/subscription_infrastructure.dart';
 import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
 import 'package:qualitrack_mobile/tracking/infrastructure/telemetry_infrastructure.dart';
@@ -132,20 +135,15 @@ void main() {
       expect(session.token.expiresAt, DateTime.utc(2030));
     });
 
-    test('deviation alert and update request', () {
+    test('deviation alert', () {
       final alert = const DeviationAlertDto(alertJson).toDomain();
       expect(alert.status, AlertStatus.unresolved);
       expect(alert.severity, AlertSeverity.critical);
       expect(alert.recordedValue, 40);
       expect(alert.timestamp, DateTime.utc(2026, 9, 3, 17, 1, 24));
-      expect(
-        const UpdateAlertStatusRequest(status: AlertStatus.resolved, performedBy: 42, resolutionNotes: 'Calibrated')
-            .toJson(),
-        {'status': 'RESOLVED', 'performedBy': 42, 'resolutionNotes': 'Calibrated'},
-      );
     });
 
-    test('batch and status update request', () {
+    test('batch', () {
       final batch = const BatchDto({
         'id': 3,
         'labId': 7,
@@ -160,31 +158,33 @@ void main() {
         'notes': null,
       }).toDomain();
       expect(batch.status, BatchStatus.inProgress);
-      expect(
-        const UpdateBatchStatusRequest.reject(rejectionDate: '2026-09-04', reason: 'BPM').toJson(),
-        {'status': 'REJECTED', 'rejectionDate': '2026-09-04', 'reason': 'BPM'},
-      );
     });
 
     test('telemetry, equipment, inventory and subscription resources', () {
       final status = const TelemetryStatusDto({
-        'id': null,
-        'equipmentId': 5,
-        'isOnline': false,
-        'currentStatus': 'OFFLINE',
-        'lastHeartbeat': null,
-        'createdAt': null,
+        'deviceId': 5,
+        'connectionStatus': 'REQUIRES_REVIEW',
+        'lastCommunicationAt': null,
+        'expectedPeriodSeconds': 300,
       }).toDomain();
+      expect(status.equipmentId, 5);
+      expect(status.isOnline, isFalse);
       expect(status.currentStatus, TelemetryStatus.offline);
+      expect(
+        const TelemetryStatusDto({'deviceId': 5, 'connectionStatus': 'CONNECTED'}).toDomain().currentStatus,
+        TelemetryStatus.operational,
+      );
 
       final point = const TelemetryHistoryPointDto({
         'id': 1,
         'equipmentId': 5,
-        'parameterName': 'Temperature',
-        'recordedValue': 38.6,
-        'timestamp': 'not-a-date',
-        'isAnomaly': true,
+        'metric': 'TEMPERATURE',
+        'value': 38.6,
+        'measuredAt': 'not-a-date',
+        'state': 'CRITICAL',
       }).toDomain();
+      expect(point.isAnomaly, isTrue);
+      expect(point.parameterName, 'TEMPERATURE');
       expect(point.timestamp, isNull);
       expect(point.rawTimestamp, 'not-a-date');
 
@@ -242,34 +242,168 @@ void main() {
       expect(store.values, isEmpty);
     });
 
-    test('compliance repository sends the lifecycle command', () async {
+    test('compliance repository posts the acknowledgement and the resolution', () async {
       final client = MockApiClient();
-      when(() => client.patch('/deviation-alerts/2', body: any(named: 'body')))
+      when(() => client.post('/deviation-alerts/2/acknowledgements'))
           .thenAnswer((_) async => {...alertJson, 'status': 'ACKNOWLEDGED', 'acknowledgedBy': 42});
-      final repo = ComplianceRepositoryImpl(ComplianceRemoteDataSource(client));
+      when(() => client.post('/deviation-alerts/2/resolutions', body: {'resolutionNotes': 'Calibrated'}))
+          .thenAnswer((_) async => {...alertJson, 'status': 'RESOLVED', 'resolvedBy': 42});
+      final repo = ComplianceRepositoryImpl(
+        ComplianceRemoteDataSource(client, EnvironmentDirectory(client), () => 7),
+        () => 7,
+      );
 
-      final alert = await repo.acknowledge(alertId: 2, performedBy: 42);
+      expect((await repo.acknowledge(alertId: 2)).status, AlertStatus.acknowledged);
+      expect((await repo.resolve(alertId: 2, resolutionNotes: 'Calibrated')).status, AlertStatus.resolved);
+    });
 
-      expect(alert.status, AlertStatus.acknowledged);
-      verify(
-        () => client.patch(
-          '/deviation-alerts/2',
-          body: {'status': 'ACKNOWLEDGED', 'performedBy': 42, 'resolutionNotes': null},
-        ),
-      ).called(1);
+    test('batch alerts are the laboratory alerts that reference the batch', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/deviation-alerts')).thenAnswer(
+        (_) async => [
+          {...alertJson, 'id': 1, 'batchId': 4},
+          {...alertJson, 'id': 2, 'batchId': 5},
+          {...alertJson, 'id': 3, 'batchId': null},
+        ],
+      );
+      final repo = ComplianceRepositoryImpl(
+        ComplianceRemoteDataSource(client, EnvironmentDirectory(client), () => 7),
+        () => 7,
+      );
+
+      expect((await repo.getBatchAlerts(4)).map((a) => a.id), [1]);
     });
 
     test('repositories filter data of other laboratories', () async {
       final client = MockApiClient();
-      when(() => client.get('/equipments', query: {'labId': 7})).thenAnswer(
+      when(() => client.get('/laboratories/7/equipments')).thenAnswer(
         (_) async => [
           {'id': 1, 'laboratoryId': 7, 'name': 'A', 'status': 'OPERATIONAL'},
           {'id': 2, 'laboratoryId': 8, 'name': 'B', 'status': 'OPERATIONAL'},
         ],
       );
-      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client));
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
       final items = await repo.getByLaboratory(const LaboratoryId(7));
       expect(items.map((e) => e.id), [1]);
+    });
+
+    test('batch routes hang from the environment and the product of the batch', () async {
+      final client = MockApiClient();
+      const base = '/laboratories/7/environments/2/products/9/batches';
+      when(() => client.get('/laboratories/7/batches')).thenAnswer(
+        (_) async => [
+          {'id': 3, 'labId': 7, 'environmentId': 2, 'productId': 9, 'batchNumber': 'LOT-1', 'status': 'PENDING'},
+        ],
+      );
+      when(() => client.get('$base/3')).thenAnswer(
+        (_) async => {'id': 3, 'labId': 7, 'environmentId': 2, 'productId': 9, 'batchNumber': 'LOT-1', 'status': 'RELEASED'},
+      );
+      when(() => client.get('$base/3/traceability')).thenAnswer(
+        (_) async => {
+          'rawMaterials': [
+            {'id': 1, 'rawMaterialId': 5, 'rawMaterialName': 'Hierro', 'quantityUsed': 2.5, 'unit': 'kg'},
+          ],
+        },
+      );
+      when(() => client.post('$base/3/releases', body: {'releaseDate': '2026-10-10', 'notes': 'OK'}))
+          .thenAnswer((_) async => {'batchId': 3, 'status': 'RELEASED'});
+      final repo = BatchRepositoryImpl(BatchRemoteDataSource(client, () => 7));
+
+      final usage = await repo.getRawMaterialUsage(3);
+      expect(usage.single.batchId, 3);
+      expect(usage.single.quantityUsed, 2.5);
+
+      final released = await repo.release(batchId: 3, releaseDate: '2026-10-10', notes: 'OK');
+      expect(released.status, BatchStatus.released);
+      verify(() => client.get('/laboratories/7/batches')).called(1);
+    });
+
+    test('unknown batch is a not found failure', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/batches')).thenAnswer((_) async => <Object>[]);
+      final repo = BatchRepositoryImpl(BatchRemoteDataSource(client, () => 7));
+      await expectLater(repo.getById(99), throwsA(isA<NotFoundFailure>()));
+    });
+
+    test('container monitor readings come from its own route and become history points', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': 'CONTAINER_MONITOR', 'name': 'M'},
+      );
+      when(
+        () => client.get(
+          '/laboratories/7/environments/2/container-monitors/5/telemetry-measurements',
+          query: {'from': null, 'to': null},
+        ),
+      ).thenAnswer(
+        (_) async => [
+          {'id': 1, 'deviceId': 5, 'metric': 'TEMPERATURE', 'value': 31.5, 'unit': '°C', 'state': 'WARNING', 'measuredAt': '2026-10-10T10:00:00Z'},
+          {'id': 2, 'deviceId': 5, 'metric': 'RFID_TAG', 'value': null, 'textValue': 'AB12', 'measuredAt': '2026-10-10T10:01:00Z'},
+        ],
+      );
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+
+      final history = await repo.getHistory(5);
+      expect(history.single.isAnomaly, isTrue);
+      expect(history.single.equipmentId, 5);
+      expect((await repo.getLatestMeasurements(5)).single.value, 31.5);
+    });
+
+    test('environmental device readings come from the environment route', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/6')).thenAnswer(
+        (_) async => {'id': 6, 'laboratoryId': 7, 'environmentId': 3, 'deviceType': 'ENVIRONMENTAL_DEVICE', 'name': 'E'},
+      );
+      when(
+        () => client.get('/laboratories/7/environments/3/telemetry-measurements', query: {'from': null, 'to': null}),
+      ).thenAnswer((_) async => <Object>[]);
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+      expect(await repo.getLatestMeasurements(6), isEmpty);
+    });
+
+    test('device status is read from the device route; equipment without a device is not found', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': 'CONTAINER_MONITOR', 'name': 'M'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/devices/5/telemetry-status')).thenAnswer(
+        (_) async => {'deviceId': 5, 'connectionStatus': 'CONNECTED', 'lastCommunicationAt': '2026-10-10T10:00:00Z'},
+      );
+      when(() => client.get('/laboratories/7/equipments/8')).thenAnswer(
+        (_) async => {'id': 8, 'laboratoryId': 7, 'environmentId': 2, 'deviceType': null, 'name': 'Balance'},
+      );
+      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+
+      expect((await repo.getStatus(5)).isOnline, isTrue);
+      await expectLater(repo.getStatus(8), throwsA(isA<NotFoundFailure>()));
+    });
+
+    test('equipment maintenance uses the environment of the equipment', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/equipments/5/maintenance-records')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'equipmentId': 5, 'maintenanceDate': '2026-05-20', 'type': 'PREVENTIVE'},
+        ],
+      );
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
+      expect((await repo.getMaintenance(5)).single.type, 'PREVENTIVE');
+    });
+
+    test('equipment without environment has no maintenance history', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': null, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      final repo = EquipmentRepositoryImpl(EquipmentRemoteDataSource(client, () => 7));
+      expect(await repo.getMaintenance(5), isEmpty);
     });
 
     test('missing active subscription (404) becomes null', () async {
@@ -280,12 +414,87 @@ void main() {
       expect(await repo.getActive(const LaboratoryId(7)), isNull);
     });
 
-    test('inventory data source uses the laboratory scoped path', () async {
+    test('deviation trends are read per environment and filtered to the equipment', () async {
       final client = MockApiClient();
-      when(() => client.get('/laboratories/7/inventory/materials/1/movements'))
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/deviation-trends')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'equipmentId': 5, 'parameterName': 'TEMPERATURE', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
+          {'id': 2, 'equipmentId': 6, 'parameterName': 'HUMIDITY', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
+        ],
+      );
+      final repo = ReportingRepositoryImpl(ReportingRemoteDataSource(client, () => 7));
+      expect((await repo.getDeviationTrends(5)).map((t) => t.id), [1]);
+    });
+
+    test('product catalog is the union of the environment products', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+          {'id': 2},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/products')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'laboratoryId': 7, 'code': 'P1', 'name': 'Alpha'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/products')).thenAnswer(
+        (_) async => [
+          {'id': 2, 'laboratoryId': 7, 'code': 'P2', 'name': 'Beta'},
+        ],
+      );
+      final repo = LaboratoryRepositoryImpl(LaboratoryRemoteDataSource(client, EnvironmentDirectory(client)));
+      expect((await repo.getProducts(const LaboratoryId(7))).map((p) => p.code), ['P1', 'P2']);
+    });
+
+    test('laboratory without an active subscription (empty list) becomes null', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/subscriptions', query: {'status': 'ACTIVE'}))
           .thenAnswer((_) async => <Object>[]);
-      final repo = InventoryRepositoryImpl(InventoryRemoteDataSource(client));
-      expect(await repo.getMovements(const LaboratoryId(7), 1), isEmpty);
+      final repo = SubscriptionRepositoryImpl(SubscriptionRemoteDataSource(client));
+      expect(await repo.getActive(const LaboratoryId(7)), isNull);
+    });
+
+    test('billing history lists the subscriptions of the laboratory', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/subscriptions')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'laboratoryId': 7, 'planCode': 'BASIC', 'status': 'ACTIVE'},
+        ],
+      );
+      final repo = SubscriptionRepositoryImpl(SubscriptionRemoteDataSource(client));
+      expect((await repo.getBillingSummary(const LaboratoryId(7))).single.planCode, 'BASIC');
+    });
+
+    test('inventory aggregates the environments and resolves the material environment', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+          {'id': 2},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/raw-materials')).thenAnswer(
+        (_) async => [
+          {'id': 10, 'laboratoryId': 7, 'name': 'Hierro'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/raw-materials')).thenAnswer(
+        (_) async => [
+          {'id': 20, 'laboratoryId': 7, 'name': 'Zinc'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/raw-materials/20/movements'))
+          .thenAnswer((_) async => <Object>[]);
+      final repo = InventoryRepositoryImpl(InventoryRemoteDataSource(client, EnvironmentDirectory(client)));
+
+      expect((await repo.getMaterials(const LaboratoryId(7))).map((m) => m.id), [10, 20]);
+      expect(await repo.getMovements(const LaboratoryId(7), 20), isEmpty);
+      verify(() => client.get('/laboratories/7/environments')).called(1);
     });
   });
 }

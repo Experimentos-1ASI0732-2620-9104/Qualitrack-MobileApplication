@@ -124,7 +124,7 @@ class GetCommandCenterSummary {
       final ids = list.map((e) => e.id).toList();
       final both = await Future.wait<Object>([
         _part(() => _getStatuses(ids)),
-        _part(() async => AlertSummary.of(await _getAlerts(ids))),
+        _part(() async => AlertSummary.of(await _getAlerts(lab))),
       ]);
       final statuses = both[0] as Part<Map<int, EquipmentTelemetryStatus>>;
       equipment = Part.ok(EquipmentSnapshot(
