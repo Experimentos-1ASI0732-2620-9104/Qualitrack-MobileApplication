@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qualitrack_mobile/app/router/app_router.dart';
 import 'package:qualitrack_mobile/app/router/app_routes.dart';
 import 'package:qualitrack_mobile/iam/application/session_controller.dart';
+import 'package:qualitrack_mobile/shared/presentation/formatting/metric_labels.dart';
 import 'package:qualitrack_mobile/reporting/presentation/pages/reports_page.dart';
 import 'package:qualitrack_mobile/shared/presentation/l10n/app_localizations.dart';
 
@@ -53,6 +54,18 @@ void main() {
       expect(kpiMetricLabel(es, 'unresolved-alert-count'), 'Alertas sin resolver');
       expect(kpiMetricLabel(AppLocalizations(const Locale('en')), 'batch-count'), 'Batches');
       expect(kpiMetricLabel(es, 'custom-metric'), 'custom-metric');
+    });
+
+    test('telemetry metrics are translated and unknown ones are kept', () {
+      final es = AppLocalizations(const Locale('es'));
+      final en = AppLocalizations(const Locale('en'));
+      expect(metricLabel(es, 'TEMPERATURE'), 'Temperatura');
+      expect(metricLabel(es, 'HUMIDITY'), 'Humedad');
+      expect(metricLabel(es, 'LUMINOSITY'), 'Luminosidad');
+      expect(metricLabel(es, 'air quality'), 'Calidad del aire');
+      expect(metricLabel(es, 'rfid-tag'), 'Etiqueta RFID');
+      expect(metricLabel(en, 'Humidity'), 'Humidity');
+      expect(metricLabel(es, 'PRESSURE'), 'PRESSURE');
     });
   });
 }

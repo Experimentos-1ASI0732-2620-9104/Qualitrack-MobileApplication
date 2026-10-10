@@ -66,6 +66,8 @@ IconData parameterIcon(String parameter) {
   if (p.contains('air') || p.contains('aire') || p.contains('co2') || p.contains('aqi')) {
     return Icons.air_outlined;
   }
+  if (p.contains('lumin') || p.contains('light')) return Icons.light_mode_outlined;
+  if (p.contains('motion') || p.contains('mov')) return Icons.directions_run_outlined;
   if (p.contains('press')) return Icons.speed_outlined;
   if (p.contains('volt')) return Icons.bolt_outlined;
   if (p.contains('rpm')) return Icons.rotate_right_outlined;

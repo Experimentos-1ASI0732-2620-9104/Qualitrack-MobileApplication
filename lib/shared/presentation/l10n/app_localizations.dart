@@ -370,6 +370,12 @@ class AppLocalizations {
   String get kpiEmpty => _t('kpiEmpty');
   String get kpiOnTrack => _t('kpiOnTrack');
   String get kpiAtRisk => _t('kpiAtRisk');
+  String get metricTemperature => _t('metricTemperature');
+  String get metricHumidity => _t('metricHumidity');
+  String get metricLuminosity => _t('metricLuminosity');
+  String get metricAirQuality => _t('metricAirQuality');
+  String get metricMotion => _t('metricMotion');
+  String get metricRfidTag => _t('metricRfidTag');
   String get kpiEquipmentCount => _t('kpiEquipmentCount');
   String get kpiUnresolvedAlertCount => _t('kpiUnresolvedAlertCount');
   String get kpiBatchCount => _t('kpiBatchCount');
@@ -697,6 +703,12 @@ const Map<String, String> _en = {
   'kpiEmpty': 'No KPI dashboard has been calculated yet.',
   'kpiOnTrack': 'On track',
   'kpiAtRisk': 'At risk',
+  'metricTemperature': 'Temperature',
+  'metricHumidity': 'Humidity',
+  'metricLuminosity': 'Luminosity',
+  'metricAirQuality': 'Air quality',
+  'metricMotion': 'Motion',
+  'metricRfidTag': 'RFID tag',
   'kpiEquipmentCount': 'Equipment',
   'kpiUnresolvedAlertCount': 'Unresolved alerts',
   'kpiBatchCount': 'Batches',
@@ -1022,6 +1034,12 @@ const Map<String, String> _es = {
   'kpiEmpty': 'Aún no se ha calculado un panel de KPIs.',
   'kpiOnTrack': 'En objetivo',
   'kpiAtRisk': 'En riesgo',
+  'metricTemperature': 'Temperatura',
+  'metricHumidity': 'Humedad',
+  'metricLuminosity': 'Luminosidad',
+  'metricAirQuality': 'Calidad del aire',
+  'metricMotion': 'Movimiento',
+  'metricRfidTag': 'Etiqueta RFID',
   'kpiEquipmentCount': 'Equipos',
   'kpiUnresolvedAlertCount': 'Alertas sin resolver',
   'kpiBatchCount': 'Lotes',
