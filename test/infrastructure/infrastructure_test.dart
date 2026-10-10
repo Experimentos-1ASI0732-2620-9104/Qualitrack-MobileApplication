@@ -461,20 +461,13 @@ void main() {
       when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
         (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
       );
-      when(
-        () => client.get(
-          '/laboratories/7/environments/2/deviation-trends',
-          query: {'from': '2026-10-10T06:00:00.000Z'},
-        ),
-      ).thenAnswer(
+      when(() => client.get('/laboratories/7/environments/2/deviation-trends')).thenAnswer(
         (_) async => [
           {'id': 1, 'equipmentId': 5, 'parameterName': 'TEMPERATURE', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
           {'id': 2, 'equipmentId': 6, 'parameterName': 'HUMIDITY', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
         ],
       );
-      final repo = ReportingRepositoryImpl(
-        ReportingRemoteDataSource(client, () => 7, clock: () => DateTime.utc(2026, 10, 10, 12)),
-      );
+      final repo = ReportingRepositoryImpl(ReportingRemoteDataSource(client, () => 7));
       expect((await repo.getDeviationTrends(5)).map((t) => t.id), [1]);
     });
 

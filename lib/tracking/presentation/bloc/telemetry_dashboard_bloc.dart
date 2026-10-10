@@ -219,7 +219,7 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
     required LaboratoryId Function() laboratoryId,
     DateTime Function()? clock,
     this.pollInterval = const Duration(seconds: 15),
-    this.historyEveryTicks = 20,
+    this.historyEveryTicks = 1,
     this.historyLookback = const Duration(hours: 24),
   }) : _getEquipments = getEquipments,
        _getStatus = getStatus,
