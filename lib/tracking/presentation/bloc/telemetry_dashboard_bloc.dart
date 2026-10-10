@@ -219,7 +219,7 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
     required LaboratoryId Function() laboratoryId,
     DateTime Function()? clock,
     this.pollInterval = const Duration(seconds: 15),
-    this.historyEveryTicks = 4,
+    this.historyEveryTicks = 20,
     this.historyLookback = const Duration(hours: 24),
   }) : _getEquipments = getEquipments,
        _getStatus = getStatus,
@@ -268,7 +268,7 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
   Future<void> _onStarted(TelemetryStarted event, Emitter<TelemetryState> emit) async {
     emit(state.copyWith(equipments: state.equipments.loading()));
     try {
-      final equipments = await _getEquipments(_laboratoryId());
+      final equipments = (await _getEquipments(_laboratoryId())).where((e) => e.hasDevice).toList();
       emit(state.copyWith(equipments: state.equipments.success(equipments, empty: equipments.isEmpty)));
       if (equipments.isEmpty) return;
       final requested = event.equipmentId;
@@ -300,6 +300,9 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
         _getLatest(equipmentId),
         _getBpmConfigs(equipmentId),
       ]);
+      var readings = results[1] as List<ParameterReading>;
+      // A device that has not reported in the last hour still shows its last readings.
+      if (readings.isEmpty) readings = await _getLatest(equipmentId, window: historyLookback);
       Failure? historyFailure;
       var history = const <TelemetryHistoryPoint>[];
       try {
@@ -313,7 +316,7 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
       final snapshot = TelemetrySnapshot(
         equipmentId: equipmentId,
         status: results[0] as EquipmentTelemetryStatus,
-        readings: results[1] as List<ParameterReading>,
+        readings: readings,
         limits: results[2] as List<BpmParameterConfig>,
         history: history,
         historyFailure: historyFailure,
@@ -351,7 +354,12 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
       final now = _clock();
       final status = await _getStatus(equipmentId);
       final readings = await _getLatest(equipmentId);
-      var next = current.copyWith(status: status, readings: readings, fetchedAt: now);
+      // The live window can be empty; keep the readings already shown.
+      var next = current.copyWith(
+        status: status,
+        readings: readings.isEmpty ? current.readings : readings,
+        fetchedAt: now,
+      );
       if (includeHistory) {
         try {
           final history = await _getHistory(equipmentId, from: now.subtract(historyLookback), to: now);

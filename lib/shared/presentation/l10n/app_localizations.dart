@@ -370,6 +370,7 @@ class AppLocalizations {
   String get kpiEmpty => _t('kpiEmpty');
   String get kpiOnTrack => _t('kpiOnTrack');
   String get kpiAtRisk => _t('kpiAtRisk');
+  String get telemetryDevicesEmpty => _t('telemetryDevicesEmpty');
   String get metricTemperature => _t('metricTemperature');
   String get metricHumidity => _t('metricHumidity');
   String get metricLuminosity => _t('metricLuminosity');
@@ -703,6 +704,7 @@ const Map<String, String> _en = {
   'kpiEmpty': 'No KPI dashboard has been calculated yet.',
   'kpiOnTrack': 'On track',
   'kpiAtRisk': 'At risk',
+  'telemetryDevicesEmpty': 'No equipment with an IoT device reports telemetry.',
   'metricTemperature': 'Temperature',
   'metricHumidity': 'Humidity',
   'metricLuminosity': 'Luminosity',
@@ -1034,6 +1036,7 @@ const Map<String, String> _es = {
   'kpiEmpty': 'Aún no se ha calculado un panel de KPIs.',
   'kpiOnTrack': 'En objetivo',
   'kpiAtRisk': 'En riesgo',
+  'telemetryDevicesEmpty': 'Ningún equipo con dispositivo IoT reporta telemetría.',
   'metricTemperature': 'Temperatura',
   'metricHumidity': 'Humedad',
   'metricLuminosity': 'Luminosidad',

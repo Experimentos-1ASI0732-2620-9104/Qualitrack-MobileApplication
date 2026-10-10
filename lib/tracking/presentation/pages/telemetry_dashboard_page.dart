@@ -81,7 +81,7 @@ class _TelemetryDashboardPageState extends State<TelemetryDashboardPage>
           state: state.equipments,
           onRetry: () => context.read<TelemetryDashboardBloc>().add(const TelemetryStarted()),
           emptyIcon: Icons.sensors_off_outlined,
-          emptyMessage: l10n.equipmentEmpty,
+          emptyMessage: l10n.telemetryDevicesEmpty,
           builder: (context, equipments) => RefreshIndicator(
             onRefresh: () async =>
                 context.read<TelemetryDashboardBloc>().add(const TelemetryRefreshRequested()),

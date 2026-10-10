@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:qualitrack_mobile/equipment/domain/equipment.dart';
 import 'package:qualitrack_mobile/batch/application/batch_use_cases.dart';
 import 'package:qualitrack_mobile/batch/domain/batch.dart';
 import 'package:qualitrack_mobile/batch/presentation/bloc/batches_bloc.dart';
@@ -362,6 +363,46 @@ void main() {
         expect(bloc.state.snapshot.data?.readings.single.latest.value, 10);
         // Initial load + at least one poll tick.
         verify(() => telemetryRepo.getStatus(11)).called(greaterThan(1));
+      },
+    );
+
+    blocTest<TelemetryDashboardBloc, TelemetryState>(
+      'lists only the equipment with an IoT device and opens the first one',
+      build: () {
+        when(() => equipmentRepo.getByLaboratory(const LaboratoryId(7))).thenAnswer(
+          (_) async => [
+            const Equipment(id: 3, laboratoryId: 7, name: 'Autoclave', status: EquipmentStatus.operational),
+            equipmentFixture(id: 10, name: 'Monitor'),
+          ],
+        );
+        return build();
+      },
+      act: (bloc) => bloc.add(const TelemetryStarted()),
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(bloc.state.equipments.data?.map((e) => e.id), [10]);
+        expect(bloc.state.selectedEquipmentId, 10);
+        verifyNever(() => telemetryRepo.getStatus(3));
+      },
+    );
+
+    blocTest<TelemetryDashboardBloc, TelemetryState>(
+      'a device silent for the last hour falls back to a wider window once',
+      build: () {
+        when(() => telemetryRepo.getLatestMeasurements(10)).thenAnswer((_) async => const []);
+        when(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).thenAnswer(
+          (_) async => [
+            Measurement(id: 9, equipmentId: 10, parameterName: 'Temperature', value: 8, timestamp: DateTime.utc(2026, 6, 14)),
+          ],
+        );
+        return build();
+      },
+      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 10)),
+      wait: const Duration(milliseconds: 70),
+      verify: (bloc) {
+        // The silent live window keeps the readings of the fallback.
+        expect(bloc.state.snapshot.data?.readings.single.latest.value, 8);
+        verify(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).called(1);
       },
     );
 

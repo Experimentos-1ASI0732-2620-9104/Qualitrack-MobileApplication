@@ -121,7 +121,7 @@ class GetCommandCenterSummary {
     Part<AlertSummary> alerts;
     if (equipmentPart.isOk) {
       final list = equipmentPart.value!;
-      final ids = list.map((e) => e.id).toList();
+      final ids = list.where((e) => e.hasDevice).map((e) => e.id).toList();
       final both = await Future.wait<Object>([
         _part(() => _getStatuses(ids)),
         _part(() async => AlertSummary.of(await _getAlerts(lab))),
