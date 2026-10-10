@@ -6,6 +6,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/widgets/confirm_dialog.dart';
 import '../../../shared/presentation/widgets/failure_message.dart';
@@ -99,7 +100,7 @@ class _AlertDetailBody extends StatelessWidget {
                   children: [
                     Semantics(
                       header: true,
-                      child: Text(alert.parameterName, style: theme.textTheme.titleLarge),
+                      child: Text(metricLabel(context.l10n, alert.parameterName), style: theme.textTheme.titleLarge),
                     ),
                     Text(
                       alert.timestamp != null

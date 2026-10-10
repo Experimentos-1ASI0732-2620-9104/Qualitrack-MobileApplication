@@ -74,7 +74,7 @@ La v1.0.0 del backend reorganizó la API: los recursos cuelgan de `laboratories/
 | inventory | Raw Materials Inventory (unión de los entornos) | `/laboratories/{lab}/environments/{env}/raw-materials` | GET | Read | Any |
 | inventory | Material detail → Receipts | `/laboratories/{lab}/environments/{env}/raw-materials/{materialId}/batches` | GET | Read | Any |
 | inventory | Material detail → Movements | `/laboratories/{lab}/environments/{env}/raw-materials/{materialId}/movements` | GET | Read | Any |
-| reporting | KPI Dashboard | `/laboratories/{lab}/kpi-dashboards` | GET | Read (404 ⇒ empty state) | Any |
+| reporting | KPI Dashboard (conteos operativos y resumen de lecturas) | `/laboratories/{lab}/kpi-dashboards` | GET | Read (calculado en cada petición: sin `id` ni `overallHealthScore`; 404 ⇒ empty state) | Any |
 | reporting | Report history | `/laboratories/{lab}/reports` | GET | Read | Any |
 | reporting | Equipment detail → Deviation trends (filtradas por equipo) | `/laboratories/{lab}/environments/{env}/deviation-trends` | GET | Read | Any |
 | reporting | Equipment detail → Audit log | `/laboratories/{lab}/equipments/{equipmentId}/audit-logs?dateFrom&dateTo` | GET | Read | Any |
@@ -108,5 +108,5 @@ La v1.0.0 del backend reorganizó la API: los recursos cuelgan de `laboratories/
 3. **Alertas por lote**: no existe `GET /batches/{id}/deviation-alerts`; se filtran las alertas del laboratorio por `batchId`.
 4. **Anomalías de telemetría**: ya no hay un campo `isAnomaly`; se consideran anomalías las lecturas con `state` `WARNING` o `CRITICAL`. Las lecturas sin valor numérico (por ejemplo `RFID_TAG`) no se grafican.
 5. **Estado de telemetría**: sólo existe `CONNECTED` / `REQUIRES_REVIEW` (la app lo muestra como operativo / sin conexión). Un equipo sin dispositivo IoT (`deviceType` nulo) no tiene telemetría.
-6. **Métricas del mockup sin fuente** (latencia en ms, “Sampling rate”, distribución porcentual): se omiten; `overallHealthScore` sólo se muestra si existe un KPI dashboard real.
+6. **Métricas del mockup sin fuente** (latencia en ms, “Sampling rate”, distribución porcentual): se omiten; `overallHealthScore` sólo se muestra si el KPI dashboard lo trae (el backend lo calcula en cada petición y hoy lo devuelve nulo).
 7. **Recibo PDF de pagos**: no hay endpoint → no se muestra.

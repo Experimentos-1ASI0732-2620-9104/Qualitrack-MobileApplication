@@ -143,6 +143,26 @@ void main() {
       expect(alert.timestamp, DateTime.utc(2026, 9, 3, 17, 1, 24));
     });
 
+    test('kpi dashboard calculated on request has no id nor health score', () {
+      final kpi = const KpiDashboardDto({
+        'id': null,
+        'laboratoryId': 7,
+        'timestamp': '2026-10-10T10:00:00',
+        'overallHealthScore': null,
+        'metrics': [
+          {'id': null, 'name': 'equipment-count', 'value': 4.0, 'unit': 'count', 'status': 'UNKNOWN'},
+        ],
+        'measurementSummaries': [
+          {'environmentId': 2, 'deviceId': 5, 'metric': 'TEMPERATURE', 'unit': '°C', 'readings': 12, 'average': 24.5, 'minimum': 22, 'maximum': 27.1},
+        ],
+      }).toDomain();
+      expect(kpi.id, isNull);
+      expect(kpi.overallHealthScore, isNull);
+      expect(kpi.metrics.single.value, 4);
+      expect(kpi.summaries.single.maximum, 27.1);
+      expect(kpi.summaries.single.readings, 12);
+    });
+
     test('batch', () {
       final batch = const BatchDto({
         'id': 3,

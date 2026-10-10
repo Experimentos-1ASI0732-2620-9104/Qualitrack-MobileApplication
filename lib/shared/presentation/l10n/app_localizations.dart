@@ -370,6 +370,22 @@ class AppLocalizations {
   String get kpiEmpty => _t('kpiEmpty');
   String get kpiOnTrack => _t('kpiOnTrack');
   String get kpiAtRisk => _t('kpiAtRisk');
+  String get metricTemperature => _t('metricTemperature');
+  String get metricHumidity => _t('metricHumidity');
+  String get metricLuminosity => _t('metricLuminosity');
+  String get metricAirQuality => _t('metricAirQuality');
+  String get metricMotion => _t('metricMotion');
+  String get metricRfidTag => _t('metricRfidTag');
+  String get kpiEquipmentCount => _t('kpiEquipmentCount');
+  String get kpiUnresolvedAlertCount => _t('kpiUnresolvedAlertCount');
+  String get kpiBatchCount => _t('kpiBatchCount');
+  String get kpiReleasedBatchCount => _t('kpiReleasedBatchCount');
+  String get readingsSummary => _t('readingsSummary');
+  String readingsCount(int count) => _t('readingsCount')
+      .replaceAll('{count}', '$count');
+  String get averageShort => _t('averageShort');
+  String get minimumShort => _t('minimumShort');
+  String get maximumShort => _t('maximumShort');
   String targetValue(String value) => _t('targetValue')
       .replaceAll('{value}', value);
   String get reportHistory => _t('reportHistory');
@@ -687,6 +703,21 @@ const Map<String, String> _en = {
   'kpiEmpty': 'No KPI dashboard has been calculated yet.',
   'kpiOnTrack': 'On track',
   'kpiAtRisk': 'At risk',
+  'metricTemperature': 'Temperature',
+  'metricHumidity': 'Humidity',
+  'metricLuminosity': 'Luminosity',
+  'metricAirQuality': 'Air quality',
+  'metricMotion': 'Motion',
+  'metricRfidTag': 'RFID tag',
+  'kpiEquipmentCount': 'Equipment',
+  'kpiUnresolvedAlertCount': 'Unresolved alerts',
+  'kpiBatchCount': 'Batches',
+  'kpiReleasedBatchCount': 'Released batches',
+  'readingsSummary': 'Readings summary (last 7 days)',
+  'readingsCount': '{count} readings',
+  'averageShort': 'Avg',
+  'minimumShort': 'Min',
+  'maximumShort': 'Max',
   'targetValue': 'Target: {value}',
   'reportHistory': 'Report history',
   'reportHistoryEmpty': 'No reports generated.',
@@ -1003,6 +1034,21 @@ const Map<String, String> _es = {
   'kpiEmpty': 'Aún no se ha calculado un panel de KPIs.',
   'kpiOnTrack': 'En objetivo',
   'kpiAtRisk': 'En riesgo',
+  'metricTemperature': 'Temperatura',
+  'metricHumidity': 'Humedad',
+  'metricLuminosity': 'Luminosidad',
+  'metricAirQuality': 'Calidad del aire',
+  'metricMotion': 'Movimiento',
+  'metricRfidTag': 'Etiqueta RFID',
+  'kpiEquipmentCount': 'Equipos',
+  'kpiUnresolvedAlertCount': 'Alertas sin resolver',
+  'kpiBatchCount': 'Lotes',
+  'kpiReleasedBatchCount': 'Lotes liberados',
+  'readingsSummary': 'Resumen de lecturas (últimos 7 días)',
+  'readingsCount': '{count} lecturas',
+  'averageShort': 'Prom.',
+  'minimumShort': 'Mín.',
+  'maximumShort': 'Máx.',
   'targetValue': 'Objetivo: {value}',
   'reportHistory': 'Historial de reportes',
   'reportHistoryEmpty': 'No hay reportes generados.',
