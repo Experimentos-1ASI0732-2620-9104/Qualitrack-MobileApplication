@@ -16,6 +16,16 @@ import '../../../shared/presentation/widgets/status_badge.dart';
 import '../../domain/reporting.dart';
 import '../bloc/reports_bloc.dart';
 
+/// Platform KPI names (`equipment-count`, …) as readable labels; other names
+/// are shown as received.
+String kpiMetricLabel(AppLocalizations l10n, String name) => switch (name) {
+  'equipment-count' => l10n.kpiEquipmentCount,
+  'unresolved-alert-count' => l10n.kpiUnresolvedAlertCount,
+  'batch-count' => l10n.kpiBatchCount,
+  'released-batch-count' => l10n.kpiReleasedBatchCount,
+  _ => name,
+};
+
 extension KpiMetricStatusPresentation on KpiMetricStatus {
   BadgeTone get tone => switch (this) {
     KpiMetricStatus.onTrack => BadgeTone.success,
@@ -148,7 +158,7 @@ class _KpiCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: SectionRow(
-                  title: m.name,
+                  title: kpiMetricLabel(l10n, m.name),
                   subtitle: m.targetValue == null
                       ? null
                       : l10n.targetValue('${Formatters.number(m.targetValue, locale)} ${m.unit ?? ''}'.trim()),
@@ -159,13 +169,37 @@ class _KpiCard extends StatelessWidget {
                         '${Formatters.number(m.value, locale)} ${m.unit ?? ''}'.trim(),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
-                      StatusBadge(label: m.status.label(l10n), tone: m.status.tone),
+                      if (m.status != KpiMetricStatus.unknown)
+                        StatusBadge(label: m.status.label(l10n), tone: m.status.tone),
                     ],
                   ),
                 ),
               ),
+          if (kpi.summaries.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(l10n.readingsSummary.toUpperCase(), style: AppTypography.overline),
+            const SizedBox(height: AppSpacing.xs),
+            for (final summary in kpi.summaries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                child: SectionRow(
+                  title: summary.metric,
+                  subtitle: l10n.readingsCount(summary.readings),
+                  trailing: Text(
+                    '${l10n.averageShort} ${_value(summary.average, summary.unit, locale)}\n'
+                    '${l10n.minimumShort} ${_value(summary.minimum, summary.unit, locale)} · '
+                    '${l10n.maximumShort} ${_value(summary.maximum, summary.unit, locale)}',
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
   }
+
+  static String _value(double? value, String? unit, String locale) =>
+      '${Formatters.number(value, locale, maxDecimals: 1)} ${unit ?? ''}'.trim();
 }

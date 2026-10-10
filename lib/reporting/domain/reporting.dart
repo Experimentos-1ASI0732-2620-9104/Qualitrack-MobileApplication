@@ -43,28 +43,58 @@ final class KpiMetric extends Equatable {
   List<Object?> get props => [id, name, value, unit, targetValue, status, recordedAt];
 }
 
-/// `KpiDashboardResource`. It only exists after it was calculated in Web.
+/// Average, minimum and maximum of the readings of a device metric in the
+/// period of the dashboard (`MeasurementSummaryResource`).
+final class MeasurementSummary extends Equatable {
+  const MeasurementSummary({
+    required this.metric,
+    required this.readings,
+    this.environmentId,
+    this.deviceId,
+    this.unit,
+    this.average,
+    this.minimum,
+    this.maximum,
+  });
+
+  final int? environmentId;
+  final int? deviceId;
+  final String metric;
+  final String? unit;
+  final int readings;
+  final double? average;
+  final double? minimum;
+  final double? maximum;
+
+  @override
+  List<Object?> get props => [environmentId, deviceId, metric, unit, readings, average, minimum, maximum];
+}
+
+/// `KpiDashboardResource`. The platform calculates it on every request, so it
+/// has no identifier and no overall health score.
 final class KpiDashboard extends Equatable {
   const KpiDashboard({
-    required this.id,
     required this.laboratoryId,
     required this.metrics,
+    this.id,
+    this.summaries = const [],
     this.overallHealthScore,
     this.timestamp,
   });
 
-  final int id;
+  final int? id;
   final int laboratoryId;
   final double? overallHealthScore;
   final DateTime? timestamp;
   final List<KpiMetric> metrics;
+  final List<MeasurementSummary> summaries;
 
   int get atRiskCount => metrics
       .where((m) => m.status == KpiMetricStatus.atRisk || m.status == KpiMetricStatus.critical)
       .length;
 
   @override
-  List<Object?> get props => [id, laboratoryId, overallHealthScore, timestamp, metrics];
+  List<Object?> get props => [id, laboratoryId, overallHealthScore, timestamp, metrics, summaries];
 }
 
 /// `AuditReportResource`.

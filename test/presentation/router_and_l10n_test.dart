@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qualitrack_mobile/app/router/app_router.dart';
 import 'package:qualitrack_mobile/app/router/app_routes.dart';
 import 'package:qualitrack_mobile/iam/application/session_controller.dart';
+import 'package:qualitrack_mobile/reporting/presentation/pages/reports_page.dart';
 import 'package:qualitrack_mobile/shared/presentation/l10n/app_localizations.dart';
 
 void main() {
@@ -45,6 +46,13 @@ void main() {
       final es = AppLocalizations(const Locale('es'));
       expect(es.pageOf(1, 3), 'Página 1 de 3');
       expect(AppLocalizations(const Locale('en')).lowStockAlert(3), '3 materials are below the minimum stock');
+    });
+
+    test('platform KPI names are readable and unknown names are kept', () {
+      final es = AppLocalizations(const Locale('es'));
+      expect(kpiMetricLabel(es, 'unresolved-alert-count'), 'Alertas sin resolver');
+      expect(kpiMetricLabel(AppLocalizations(const Locale('en')), 'batch-count'), 'Batches');
+      expect(kpiMetricLabel(es, 'custom-metric'), 'custom-metric');
     });
   });
 }
