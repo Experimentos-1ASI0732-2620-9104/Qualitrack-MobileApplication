@@ -1,5 +1,6 @@
 import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/reporting.dart';
 
@@ -90,9 +91,10 @@ class AuditLogEntryDto {
 }
 
 class ReportingRemoteDataSource {
-  const ReportingRemoteDataSource(this._client);
+  const ReportingRemoteDataSource(this._client, this._laboratoryId);
 
   final ApiClient _client;
+  final LaboratoryIdProvider _laboratoryId;
 
   Future<KpiDashboardDto?> getKpiDashboard(int labId) => nullOnNotFound(
     () async => KpiDashboardDto(Json.asMap(await _client.get('/laboratories/$labId/kpi-dashboards'))),
@@ -102,12 +104,24 @@ class ReportingRemoteDataSource {
     await _client.get('/laboratories/$labId/reports'),
   ).map(AuditReportDto.new).toList();
 
-  Future<List<DeviationTrendDto>> getTrends(int equipmentId) async => Json.asList(
-    await _client.get('/equipments/$equipmentId/deviation-trends'),
-  ).map(DeviationTrendDto.new).toList();
+  /// Trends are calculated per environment, so the ones of the environment of
+  /// the equipment are filtered down to the equipment.
+  Future<List<DeviationTrendDto>> getTrends(int equipmentId) async {
+    final labId = _laboratoryId();
+    final equipment = Json.asMap(await _client.get('/laboratories/$labId/equipments/$equipmentId'));
+    final environmentId = Json.optInt(equipment, 'environmentId');
+    if (environmentId == null) return const [];
+    final trends = Json.asList(
+      await _client.get('/laboratories/$labId/environments/$environmentId/deviation-trends'),
+    );
+    return trends
+        .where((trend) => Json.optInt(trend, 'equipmentId') == equipmentId)
+        .map(DeviationTrendDto.new)
+        .toList();
+  }
 
   Future<List<AuditLogEntryDto>> getEquipmentAuditLogs(int equipmentId) async => Json.asList(
-    await _client.get('/equipments/$equipmentId/audit-logs'),
+    await _client.get('/laboratories/${_laboratoryId()}/equipments/$equipmentId/audit-logs'),
   ).map(AuditLogEntryDto.new).toList();
 
   Future<List<AuditLogEntryDto>> getBatchAuditLogs(int batchId) async => Json.asList(

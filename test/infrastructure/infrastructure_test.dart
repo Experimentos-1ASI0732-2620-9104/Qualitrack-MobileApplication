@@ -19,6 +19,7 @@ import 'package:qualitrack_mobile/shared/infrastructure/http/api_exception_mappe
 import 'package:qualitrack_mobile/shared/infrastructure/http/auth_interceptor.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/environment_directory.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/json_utils.dart';
+import 'package:qualitrack_mobile/reporting/infrastructure/reporting_infrastructure.dart';
 import 'package:qualitrack_mobile/subscription/infrastructure/subscription_infrastructure.dart';
 import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
 import 'package:qualitrack_mobile/tracking/infrastructure/telemetry_infrastructure.dart';
@@ -302,6 +303,21 @@ void main() {
           .thenThrow(const NotFoundFailure());
       final repo = SubscriptionRepositoryImpl(SubscriptionRemoteDataSource(client));
       expect(await repo.getActive(const LaboratoryId(7)), isNull);
+    });
+
+    test('deviation trends are read per environment and filtered to the equipment', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
+        (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
+      );
+      when(() => client.get('/laboratories/7/environments/2/deviation-trends')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'equipmentId': 5, 'parameterName': 'TEMPERATURE', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
+          {'id': 2, 'equipmentId': 6, 'parameterName': 'HUMIDITY', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
+        ],
+      );
+      final repo = ReportingRepositoryImpl(ReportingRemoteDataSource(client, () => 7));
+      expect((await repo.getDeviationTrends(5)).map((t) => t.id), [1]);
     });
 
     test('laboratory without an active subscription (empty list) becomes null', () async {

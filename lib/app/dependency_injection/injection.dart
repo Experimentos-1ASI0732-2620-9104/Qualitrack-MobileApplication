@@ -143,7 +143,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => GetInventoryMovements(sl()));
 
   // Reporting & Audit
-  sl.registerLazySingleton(() => ReportingRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => ReportingRemoteDataSource(sl(), _laboratoryIdValue));
   sl.registerLazySingleton<ReportingRepository>(() => ReportingRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetKpiDashboard(sl()));
   sl.registerLazySingleton(() => GetReportHistory(sl()));
