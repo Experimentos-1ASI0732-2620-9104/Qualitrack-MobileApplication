@@ -58,6 +58,8 @@ Equipment equipmentFixture({int id = 10, String name = 'Stability Chamber'}) => 
   status: EquipmentStatus.operational,
   rawStatus: 'OPERATIONAL',
   sensorExternalId: 'ESP32-$id',
+  environmentId: 2,
+  deviceType: 'CONTAINER_MONITOR',
 );
 
 ProductionBatch batchFixture({

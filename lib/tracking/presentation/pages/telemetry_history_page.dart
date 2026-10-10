@@ -44,7 +44,7 @@ class TelemetryHistoryPage extends StatelessWidget {
         builder: (context, state) => RemoteStateView<List<Equipment>>(
           state: state.equipments,
           onRetry: () => context.read<TelemetryHistoryBloc>().add(const TelemetryHistoryStarted()),
-          emptyMessage: l10n.equipmentEmpty,
+          emptyMessage: l10n.telemetryDevicesEmpty,
           builder: (context, equipments) => ListView(
             padding: const EdgeInsets.all(AppSpacing.lg),
             children: [

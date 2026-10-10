@@ -114,6 +114,20 @@ void main() {
   });
 
   group('Inventory & Equipment', () {
+    test('only equipment with an IoT device in an environment reports telemetry', () {
+      const plain = Equipment(id: 1, laboratoryId: 7, name: 'Autoclave', status: EquipmentStatus.operational);
+      expect(plain.hasDevice, isFalse);
+      expect(equipmentFixture().hasDevice, isTrue);
+      const unplaced = Equipment(
+        id: 2,
+        laboratoryId: 7,
+        name: 'Monitor',
+        status: EquipmentStatus.operational,
+        deviceType: 'CONTAINER_MONITOR',
+      );
+      expect(unplaced.hasDevice, isFalse);
+    });
+
     test('below minimum uses usable stock', () {
       const material = InventoryMaterial(
         id: 1,

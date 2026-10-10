@@ -54,6 +54,10 @@ final class Equipment extends Equatable {
   final String? rawStatus;
   final String? sensorExternalId;
 
+  /// Only equipment with an IoT device (inside an environment) reports
+  /// telemetry.
+  bool get hasDevice => deviceType != null && environmentId != null;
+
   bool get hasSensor => sensorExternalId != null && sensorExternalId!.trim().isNotEmpty;
 
   /// Equipment that is not operational requires attention.
