@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-10
+
+### Fixed
+- The KPI dashboard did not load: the platform calculates it on every request and answers it without an `id`, which the app required. The `id` is now optional.
+
+### Added
+- Readings summary (average, minimum and maximum per device metric, last 7 days) in the KPI dashboard.
+
+### Changed
+- Telemetry metric names (`TEMPERATURE`, `HUMIDITY`, `LUMINOSITY`, `AIR_QUALITY`, `MOTION`, `RFID_TAG`) are shown translated in Spanish and English in telemetry, alerts, BPM limits, trends and the KPI dashboard.
+- Platform KPI names (`equipment-count`, `unresolved-alert-count`, `batch-count`, `released-batch-count`) are shown as readable labels and the unknown status badge is hidden.
+- Test suite grows to 94 tests.
+
 ## [1.0.1] - 2026-10-10
 
 ### Fixed
