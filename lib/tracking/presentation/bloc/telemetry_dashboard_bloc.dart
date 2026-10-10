@@ -268,7 +268,7 @@ class TelemetryDashboardBloc extends Bloc<TelemetryEvent, TelemetryState> {
   Future<void> _onStarted(TelemetryStarted event, Emitter<TelemetryState> emit) async {
     emit(state.copyWith(equipments: state.equipments.loading()));
     try {
-      final equipments = await _getEquipments(_laboratoryId());
+      final equipments = (await _getEquipments(_laboratoryId())).where((e) => e.hasDevice).toList();
       emit(state.copyWith(equipments: state.equipments.success(equipments, empty: equipments.isEmpty)));
       if (equipments.isEmpty) return;
       final requested = event.equipmentId;

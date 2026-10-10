@@ -121,7 +121,7 @@ class EquipmentListBloc extends Bloc<EquipmentListEvent, EquipmentListState> {
     ));
     try {
       final equipments = await _getEquipments(_laboratoryId());
-      final statuses = await _getStatuses(equipments.map((e) => e.id).toList());
+      final statuses = await _getStatuses(equipments.where((e) => e.hasDevice).map((e) => e.id).toList());
       final items = [
         for (final e in equipments) EquipmentOverview(equipment: e, telemetry: statuses[e.id]),
       ];

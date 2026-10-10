@@ -292,6 +292,7 @@ kpiDashboard	KPI dashboard	Panel de KPIs
 kpiEmpty	No KPI dashboard has been calculated yet.	Aún no se ha calculado un panel de KPIs.
 kpiOnTrack	On track	En objetivo
 kpiAtRisk	At risk	En riesgo
+telemetryDevicesEmpty	No equipment with an IoT device reports telemetry.	Ningún equipo con dispositivo IoT reporta telemetría.
 metricTemperature	Temperature	Temperatura
 metricHumidity	Humidity	Humedad
 metricLuminosity	Luminosity	Luminosidad

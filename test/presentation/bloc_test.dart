@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:qualitrack_mobile/equipment/domain/equipment.dart';
 import 'package:qualitrack_mobile/batch/application/batch_use_cases.dart';
 import 'package:qualitrack_mobile/batch/domain/batch.dart';
 import 'package:qualitrack_mobile/batch/presentation/bloc/batches_bloc.dart';
@@ -362,6 +363,26 @@ void main() {
         expect(bloc.state.snapshot.data?.readings.single.latest.value, 10);
         // Initial load + at least one poll tick.
         verify(() => telemetryRepo.getStatus(11)).called(greaterThan(1));
+      },
+    );
+
+    blocTest<TelemetryDashboardBloc, TelemetryState>(
+      'lists only the equipment with an IoT device and opens the first one',
+      build: () {
+        when(() => equipmentRepo.getByLaboratory(const LaboratoryId(7))).thenAnswer(
+          (_) async => [
+            const Equipment(id: 3, laboratoryId: 7, name: 'Autoclave', status: EquipmentStatus.operational),
+            equipmentFixture(id: 10, name: 'Monitor'),
+          ],
+        );
+        return build();
+      },
+      act: (bloc) => bloc.add(const TelemetryStarted()),
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(bloc.state.equipments.data?.map((e) => e.id), [10]);
+        expect(bloc.state.selectedEquipmentId, 10);
+        verifyNever(() => telemetryRepo.getStatus(3));
       },
     );
 

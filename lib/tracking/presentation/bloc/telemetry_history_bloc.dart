@@ -175,7 +175,7 @@ class TelemetryHistoryBloc extends Bloc<TelemetryHistoryEvent, TelemetryHistoryS
   Future<void> _onStarted(TelemetryHistoryStarted event, Emitter<TelemetryHistoryState> emit) async {
     emit(state.copyWith(equipments: state.equipments.loading()));
     try {
-      final equipments = await _getEquipments(_laboratoryId());
+      final equipments = (await _getEquipments(_laboratoryId())).where((e) => e.hasDevice).toList();
       emit(state.copyWith(equipments: state.equipments.success(equipments, empty: equipments.isEmpty)));
       if (equipments.isEmpty) return;
       final requested = event.equipmentId;
