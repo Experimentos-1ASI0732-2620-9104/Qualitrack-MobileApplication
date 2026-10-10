@@ -94,7 +94,7 @@ Future<void> configureDependencies({
   );
 
   // Laboratory Management
-  sl.registerLazySingleton(() => LaboratoryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => LaboratoryRemoteDataSource(sl(), sl()));
   sl.registerLazySingleton<LaboratoryRepository>(() => LaboratoryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetLaboratory(sl()));
   sl.registerLazySingleton(() => GetProducts(sl()));

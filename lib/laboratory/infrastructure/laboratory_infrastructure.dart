@@ -1,5 +1,6 @@
 import '../../shared/domain/value_objects.dart';
 import '../../shared/infrastructure/http/api_client.dart';
+import '../../shared/infrastructure/http/environment_directory.dart';
 import '../../shared/infrastructure/http/json_utils.dart';
 import '../domain/laboratory.dart';
 
@@ -36,15 +37,25 @@ class ProductDto {
 }
 
 class LaboratoryRemoteDataSource {
-  const LaboratoryRemoteDataSource(this._client);
+  const LaboratoryRemoteDataSource(this._client, this._environments);
 
   final ApiClient _client;
+  final EnvironmentDirectory _environments;
 
   Future<LaboratoryDto> getLaboratory(int id) async =>
       LaboratoryDto(Json.asMap(await _client.get('/laboratories/$id')));
 
-  Future<List<ProductDto>> getProducts(int id) async =>
-      Json.asList(await _client.get('/laboratories/$id/products')).map(ProductDto.new).toList();
+  /// Products belong to an environment: the catalog is the union of them.
+  Future<List<ProductDto>> getProducts(int id) async {
+    final products = <ProductDto>[];
+    for (final environmentId in await _environments.ids(id)) {
+      final items = Json.asList(
+        await _client.get('/laboratories/$id/environments/$environmentId/products'),
+      );
+      products.addAll(items.map(ProductDto.new));
+    }
+    return products;
+  }
 }
 
 class LaboratoryRepositoryImpl implements LaboratoryRepository {

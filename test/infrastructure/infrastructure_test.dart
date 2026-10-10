@@ -19,6 +19,7 @@ import 'package:qualitrack_mobile/shared/infrastructure/http/api_exception_mappe
 import 'package:qualitrack_mobile/shared/infrastructure/http/auth_interceptor.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/environment_directory.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/json_utils.dart';
+import 'package:qualitrack_mobile/laboratory/infrastructure/laboratory_infrastructure.dart';
 import 'package:qualitrack_mobile/reporting/infrastructure/reporting_infrastructure.dart';
 import 'package:qualitrack_mobile/subscription/infrastructure/subscription_infrastructure.dart';
 import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
@@ -318,6 +319,28 @@ void main() {
       );
       final repo = ReportingRepositoryImpl(ReportingRemoteDataSource(client, () => 7));
       expect((await repo.getDeviationTrends(5)).map((t) => t.id), [1]);
+    });
+
+    test('product catalog is the union of the environment products', () async {
+      final client = MockApiClient();
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+          {'id': 2},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/products')).thenAnswer(
+        (_) async => [
+          {'id': 1, 'laboratoryId': 7, 'code': 'P1', 'name': 'Alpha'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/products')).thenAnswer(
+        (_) async => [
+          {'id': 2, 'laboratoryId': 7, 'code': 'P2', 'name': 'Beta'},
+        ],
+      );
+      final repo = LaboratoryRepositoryImpl(LaboratoryRemoteDataSource(client, EnvironmentDirectory(client)));
+      expect((await repo.getProducts(const LaboratoryId(7))).map((p) => p.code), ['P1', 'P2']);
     });
 
     test('laboratory without an active subscription (empty list) becomes null', () async {
