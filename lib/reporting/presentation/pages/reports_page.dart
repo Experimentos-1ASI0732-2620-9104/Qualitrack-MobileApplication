@@ -6,6 +6,7 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_typography.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/remote_state.dart';
 import '../../../shared/presentation/widgets/failure_message.dart';
@@ -183,7 +184,7 @@ class _KpiCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: SectionRow(
-                  title: summary.metric,
+                  title: metricLabel(l10n, summary.metric),
                   subtitle: l10n.readingsCount(summary.readings),
                   trailing: Text(
                     '${l10n.averageShort} ${_value(summary.average, summary.unit, locale)}\n'

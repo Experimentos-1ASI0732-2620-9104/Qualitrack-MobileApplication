@@ -5,6 +5,7 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_typography.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/widgets/status_badge.dart';
 import '../../domain/compliance.dart';
@@ -87,7 +88,7 @@ class AlertCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(l10n.parameter.toUpperCase(), style: AppTypography.overline),
-                        Text(alert.parameterName, style: theme.textTheme.titleSmall),
+                        Text(metricLabel(context.l10n, alert.parameterName), style: theme.textTheme.titleSmall),
                       ],
                     ),
                   ),

@@ -292,6 +292,12 @@ kpiDashboard	KPI dashboard	Panel de KPIs
 kpiEmpty	No KPI dashboard has been calculated yet.	Aún no se ha calculado un panel de KPIs.
 kpiOnTrack	On track	En objetivo
 kpiAtRisk	At risk	En riesgo
+metricTemperature	Temperature	Temperatura
+metricHumidity	Humidity	Humedad
+metricLuminosity	Luminosity	Luminosidad
+metricAirQuality	Air quality	Calidad del aire
+metricMotion	Motion	Movimiento
+metricRfidTag	RFID tag	Etiqueta RFID
 kpiEquipmentCount	Equipment	Equipos
 kpiUnresolvedAlertCount	Unresolved alerts	Alertas sin resolver
 kpiBatchCount	Batches	Lotes

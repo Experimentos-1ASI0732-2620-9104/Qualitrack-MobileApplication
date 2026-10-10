@@ -7,6 +7,7 @@ import '../../../app/theme/app_typography.dart';
 import '../../../equipment/domain/equipment.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/view_status.dart';
 import '../../../shared/presentation/widgets/layout_widgets.dart';
@@ -217,7 +218,7 @@ class _HistoryTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(l10n.parameter.toUpperCase(), style: AppTypography.overline),
-                    Text(point.parameterName, style: Theme.of(context).textTheme.titleSmall),
+                    Text(metricLabel(context.l10n, point.parameterName), style: Theme.of(context).textTheme.titleSmall),
                   ],
                 ),
               ),

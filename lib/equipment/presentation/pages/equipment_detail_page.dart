@@ -7,6 +7,7 @@ import '../../../compliance/domain/compliance.dart';
 import '../../../reporting/domain/reporting.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/remote_state.dart';
 import '../../../shared/presentation/widgets/layout_widgets.dart';
@@ -118,7 +119,7 @@ class _DetailBody extends StatelessWidget {
           section: detail.bpmConfigs,
           emptyMessage: l10n.bpmLimitsEmpty,
           itemBuilder: (context, c) => SectionRow(
-            title: c.parameterName,
+            title: metricLabel(l10n, c.parameterName),
             trailing: Text(
               '${Formatters.number(c.minValue, locale)} – ${Formatters.number(c.maxValue, locale)} ${c.unit ?? ''}'
                   .trim(),
@@ -143,7 +144,7 @@ class _DetailBody extends StatelessWidget {
           title: l10n.deviationTrends,
           section: detail.trends,
           itemBuilder: (context, t) => SectionRow(
-            title: t.parameterName,
+            title: metricLabel(l10n, t.parameterName),
             subtitle: l10n.dataPointsCount(t.dataPoints.length),
             trailing: StatusBadge(
               label: _trendLabel(l10n, t.direction),

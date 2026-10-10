@@ -9,6 +9,7 @@ import '../../../app/theme/app_typography.dart';
 import '../../../equipment/domain/equipment.dart';
 import '../../../shared/presentation/formatting/context_locale.dart';
 import '../../../shared/presentation/formatting/formatters.dart';
+import '../../../shared/presentation/formatting/metric_labels.dart';
 import '../../../shared/presentation/l10n/app_localizations.dart';
 import '../../../shared/presentation/view_status.dart';
 import '../../../shared/presentation/widgets/layout_widgets.dart';
@@ -313,7 +314,7 @@ class _ChartCard extends StatelessWidget {
             FilterChipBar<String>(
               options: parameters,
               selected: parameter ?? parameters.first,
-              labelOf: (p) => p,
+              labelOf: (p) => metricLabel(context.l10n, p),
               onSelected: (p) => bloc.add(TelemetryParameterSelected(p)),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -340,7 +341,7 @@ class _ChartCard extends StatelessWidget {
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.xs,
             children: [
-              _Legend(color: AppColors.chartLine, label: parameter ?? '—'),
+              _Legend(color: AppColors.chartLine, label: parameter == null ? '—' : metricLabel(context.l10n, parameter)),
               _Legend(color: AppColors.chartAnomaly, label: context.l10n.anomaly),
               if (parameter != null && snapshot.limitFor(parameter) != null)
                 _Legend(color: AppColors.chartLimit, label: context.l10n.bpmLimits),
@@ -389,7 +390,7 @@ class _ReadingCard extends StatelessWidget {
     final within = limit?.isWithin(m.value);
     final time = m.timestamp != null ? Formatters.dateTime(m.timestamp, locale) : (m.rawTimestamp ?? '—');
     return Semantics(
-      label: '${m.parameterName}: ${Formatters.number(m.value, locale)} ${m.unit ?? ''}',
+      label: '${metricLabel(l10n, m.parameterName)}: ${Formatters.number(m.value, locale)} ${m.unit ?? ''}',
       child: InfoCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,7 +401,7 @@ class _ReadingCard extends StatelessWidget {
                 const SizedBox(width: AppSpacing.xs),
                 Expanded(
                   child: Text(
-                    m.parameterName,
+                    metricLabel(l10n, m.parameterName),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium,
@@ -470,7 +471,7 @@ class _AnomalyTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(l10n.parameter.toUpperCase(), style: AppTypography.overline),
-                Text(point.parameterName, style: Theme.of(context).textTheme.titleSmall),
+                Text(metricLabel(context.l10n, point.parameterName), style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
                   point.timestamp != null
