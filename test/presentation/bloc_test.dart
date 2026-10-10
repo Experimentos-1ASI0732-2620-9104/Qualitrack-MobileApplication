@@ -406,6 +406,19 @@ void main() {
       },
     );
 
+    blocTest<TelemetryDashboardBloc, TelemetryState>(
+      'the chart history refreshes on every poll, like the readings',
+      build: build,
+      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 10)),
+      wait: const Duration(milliseconds: 90),
+      verify: (_) {
+        // Initial load + at least two ticks.
+        verify(
+          () => telemetryRepo.getHistory(10, from: any(named: 'from'), to: any(named: 'to')),
+        ).called(greaterThan(2));
+      },
+    );
+
     test('closing the bloc cancels the polling timer', () async {
       final bloc = build()..add(const TelemetryStarted());
       await Future<void>.delayed(const Duration(milliseconds: 30));
