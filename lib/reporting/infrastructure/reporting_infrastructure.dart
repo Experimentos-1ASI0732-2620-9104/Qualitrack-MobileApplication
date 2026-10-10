@@ -10,13 +10,27 @@ class KpiDashboardDto {
   final Map<String, dynamic> json;
 
   KpiDashboard toDomain() => KpiDashboard(
-    id: Json.requireInt(json, 'id'),
+    id: Json.optInt(json, 'id'),
     laboratoryId: Json.requireInt(json, 'laboratoryId'),
     overallHealthScore: Json.optDouble(json, 'overallHealthScore'),
     timestamp: Json.optDateTime(json, 'timestamp'),
     metrics: json['metrics'] == null
         ? const []
         : Json.asList(json['metrics']).map(_metric).toList(growable: false),
+    summaries: json['measurementSummaries'] == null
+        ? const []
+        : Json.asList(json['measurementSummaries']).map(_summary).toList(growable: false),
+  );
+
+  static MeasurementSummary _summary(Map<String, dynamic> s) => MeasurementSummary(
+    environmentId: Json.optInt(s, 'environmentId'),
+    deviceId: Json.optInt(s, 'deviceId'),
+    metric: Json.requireString(s, 'metric'),
+    unit: Json.optString(s, 'unit'),
+    readings: Json.optInt(s, 'readings') ?? 0,
+    average: Json.optDouble(s, 'average'),
+    minimum: Json.optDouble(s, 'minimum'),
+    maximum: Json.optDouble(s, 'maximum'),
   );
 
   static KpiMetric _metric(Map<String, dynamic> m) => KpiMetric(

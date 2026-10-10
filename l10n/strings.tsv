@@ -292,6 +292,15 @@ kpiDashboard	KPI dashboard	Panel de KPIs
 kpiEmpty	No KPI dashboard has been calculated yet.	Aún no se ha calculado un panel de KPIs.
 kpiOnTrack	On track	En objetivo
 kpiAtRisk	At risk	En riesgo
+kpiEquipmentCount	Equipment	Equipos
+kpiUnresolvedAlertCount	Unresolved alerts	Alertas sin resolver
+kpiBatchCount	Batches	Lotes
+kpiReleasedBatchCount	Released batches	Lotes liberados
+readingsSummary	Readings summary (last 7 days)	Resumen de lecturas (últimos 7 días)
+readingsCount	{count} readings	{count} lecturas	count:int
+averageShort	Avg	Prom.
+minimumShort	Min	Mín.
+maximumShort	Max	Máx.
 targetValue	Target: {value}	Objetivo: {value}	value:String
 reportHistory	Report history	Historial de reportes
 reportHistoryEmpty	No reports generated.	No hay reportes generados.
