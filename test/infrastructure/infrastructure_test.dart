@@ -17,6 +17,7 @@ import 'package:qualitrack_mobile/shared/domain/value_objects.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/configuration/api_config.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/api_exception_mapper.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/auth_interceptor.dart';
+import 'package:qualitrack_mobile/shared/infrastructure/http/environment_directory.dart';
 import 'package:qualitrack_mobile/shared/infrastructure/http/json_utils.dart';
 import 'package:qualitrack_mobile/subscription/infrastructure/subscription_infrastructure.dart';
 import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
@@ -303,12 +304,31 @@ void main() {
       expect(await repo.getActive(const LaboratoryId(7)), isNull);
     });
 
-    test('inventory data source uses the laboratory scoped path', () async {
+    test('inventory aggregates the environments and resolves the material environment', () async {
       final client = MockApiClient();
-      when(() => client.get('/laboratories/7/inventory/materials/1/movements'))
+      when(() => client.get('/laboratories/7/environments')).thenAnswer(
+        (_) async => [
+          {'id': 1},
+          {'id': 2},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/1/raw-materials')).thenAnswer(
+        (_) async => [
+          {'id': 10, 'laboratoryId': 7, 'name': 'Hierro'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/raw-materials')).thenAnswer(
+        (_) async => [
+          {'id': 20, 'laboratoryId': 7, 'name': 'Zinc'},
+        ],
+      );
+      when(() => client.get('/laboratories/7/environments/2/raw-materials/20/movements'))
           .thenAnswer((_) async => <Object>[]);
-      final repo = InventoryRepositoryImpl(InventoryRemoteDataSource(client));
-      expect(await repo.getMovements(const LaboratoryId(7), 1), isEmpty);
+      final repo = InventoryRepositoryImpl(InventoryRemoteDataSource(client, EnvironmentDirectory(client)));
+
+      expect((await repo.getMaterials(const LaboratoryId(7))).map((m) => m.id), [10, 20]);
+      expect(await repo.getMovements(const LaboratoryId(7), 20), isEmpty);
+      verify(() => client.get('/laboratories/7/environments')).called(1);
     });
   });
 }

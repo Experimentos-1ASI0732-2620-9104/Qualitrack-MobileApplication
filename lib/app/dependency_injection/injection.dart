@@ -136,7 +136,7 @@ Future<void> configureDependencies({
   sl.registerLazySingleton(() => RejectExistingBatch(sl()));
 
   // Inventory Management
-  sl.registerLazySingleton(() => InventoryRemoteDataSource(sl()));
+  sl.registerLazySingleton(() => InventoryRemoteDataSource(sl(), sl()));
   sl.registerLazySingleton<InventoryRepository>(() => InventoryRepositoryImpl(sl()));
   sl.registerLazySingleton(() => GetInventoryMaterials(sl()));
   sl.registerLazySingleton(() => GetMaterialReceipts(sl()));
