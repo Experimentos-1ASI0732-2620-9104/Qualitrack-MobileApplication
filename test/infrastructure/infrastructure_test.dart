@@ -366,12 +366,27 @@ void main() {
           {'id': 2, 'deviceId': 5, 'metric': 'RFID_TAG', 'value': null, 'textValue': 'AB12', 'measuredAt': '2026-10-10T10:01:00Z'},
         ],
       );
-      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
+      when(
+        () => client.get(
+          '/laboratories/7/environments/2/container-monitors/5/telemetry-measurements',
+          query: {'from': '2026-10-10T11:00:00.000Z', 'to': null},
+        ),
+      ).thenAnswer(
+        (_) async => [
+          {'id': 3, 'deviceId': 5, 'metric': 'TEMPERATURE', 'value': 31.9, 'unit': '°C', 'state': 'WARNING', 'measuredAt': '2026-10-10T11:30:00Z'},
+        ],
+      );
+      final repo = TelemetryRepositoryImpl(
+        TelemetryRemoteDataSource(client, () => 7),
+        clock: () => DateTime.utc(2026, 10, 10, 12),
+      );
 
       final history = await repo.getHistory(5);
       expect(history.single.isAnomaly, isTrue);
       expect(history.single.equipmentId, 5);
-      expect((await repo.getLatestMeasurements(5)).single.value, 31.5);
+      // Live readings only ask for the last hour.
+      expect((await repo.getLatestMeasurements(5)).single.value, 31.9);
+
     });
 
     test('environmental device readings come from the environment route', () async {
@@ -380,10 +395,17 @@ void main() {
         (_) async => {'id': 6, 'laboratoryId': 7, 'environmentId': 3, 'deviceType': 'ENVIRONMENTAL_DEVICE', 'name': 'E'},
       );
       when(
-        () => client.get('/laboratories/7/environments/3/telemetry-measurements', query: {'from': null, 'to': null}),
+        () => client.get(
+          '/laboratories/7/environments/3/telemetry-measurements',
+          query: {'from': '2026-10-09T12:00:00.000Z', 'to': null},
+        ),
       ).thenAnswer((_) async => <Object>[]);
-      final repo = TelemetryRepositoryImpl(TelemetryRemoteDataSource(client, () => 7));
-      expect(await repo.getLatestMeasurements(6), isEmpty);
+      final repo = TelemetryRepositoryImpl(
+        TelemetryRemoteDataSource(client, () => 7),
+        clock: () => DateTime.utc(2026, 10, 10, 12),
+      );
+      // A wider window is only used for a device that has not reported recently.
+      expect(await repo.getLatestMeasurements(6, window: const Duration(hours: 24)), isEmpty);
     });
 
     test('device status is read from the device route; equipment without a device is not found', () async {
@@ -439,13 +461,20 @@ void main() {
       when(() => client.get('/laboratories/7/equipments/5')).thenAnswer(
         (_) async => {'id': 5, 'laboratoryId': 7, 'environmentId': 2, 'name': 'A', 'status': 'OPERATIONAL'},
       );
-      when(() => client.get('/laboratories/7/environments/2/deviation-trends')).thenAnswer(
+      when(
+        () => client.get(
+          '/laboratories/7/environments/2/deviation-trends',
+          query: {'from': '2026-10-10T06:00:00.000Z'},
+        ),
+      ).thenAnswer(
         (_) async => [
           {'id': 1, 'equipmentId': 5, 'parameterName': 'TEMPERATURE', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
           {'id': 2, 'equipmentId': 6, 'parameterName': 'HUMIDITY', 'trendDirection': 'STABLE', 'dataPoints': <Object>[]},
         ],
       );
-      final repo = ReportingRepositoryImpl(ReportingRemoteDataSource(client, () => 7));
+      final repo = ReportingRepositoryImpl(
+        ReportingRemoteDataSource(client, () => 7, clock: () => DateTime.utc(2026, 10, 10, 12)),
+      );
       expect((await repo.getDeviationTrends(5)).map((t) => t.id), [1]);
     });
 

@@ -203,7 +203,14 @@ abstract final class TelemetryAnalysis {
 }
 
 abstract interface class TelemetryRepository {
+  /// Period of the live readings: the platform answers every reading of the
+  /// requested period (24 hours by default, about 870 KB for a container).
+  static const Duration defaultLatestWindow = Duration(hours: 1);
+
   Future<EquipmentTelemetryStatus> getStatus(int equipmentId);
-  Future<List<Measurement>> getLatestMeasurements(int equipmentId);
+  Future<List<Measurement>> getLatestMeasurements(
+    int equipmentId, {
+    Duration window = defaultLatestWindow,
+  });
   Future<List<TelemetryHistoryPoint>> getHistory(int equipmentId, {DateTime? from, DateTime? to});
 }

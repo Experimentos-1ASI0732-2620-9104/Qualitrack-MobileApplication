@@ -14,8 +14,12 @@ class GetLatestTelemetry {
 
   final TelemetryRepository _repository;
 
-  Future<List<ParameterReading>> call(int equipmentId) async {
-    final measurements = await _repository.getLatestMeasurements(equipmentId);
+  /// Readings of the last hour; a wider [window] is only for a device that
+  /// has not reported recently.
+  Future<List<ParameterReading>> call(int equipmentId, {Duration? window}) async {
+    final measurements = window == null
+        ? await _repository.getLatestMeasurements(equipmentId)
+        : await _repository.getLatestMeasurements(equipmentId, window: window);
     return TelemetryAnalysis.latestByParameter(
       measurements.where((m) => m.equipmentId == equipmentId && m.value.isFinite).toList(),
     );
