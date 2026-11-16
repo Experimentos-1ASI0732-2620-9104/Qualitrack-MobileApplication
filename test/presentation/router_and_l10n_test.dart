@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qualitrack_mobile/app/router/app_router.dart';
 import 'package:qualitrack_mobile/app/router/app_routes.dart';
 import 'package:qualitrack_mobile/iam/application/session_controller.dart';
-import 'package:qualitrack_mobile/shared/presentation/formatting/metric_labels.dart';
-import 'package:qualitrack_mobile/reporting/presentation/pages/reports_page.dart';
-import 'package:qualitrack_mobile/shared/presentation/l10n/app_localizations.dart';
+import 'package:qualitrack_mobile/common/presentation/i18n/app_localizations.dart';
+import 'package:qualitrack_mobile/common/presentation/labels.dart';
+import 'package:qualitrack_mobile/common/presentation/widgets/status_badge.dart';
 
 void main() {
   group('route guard', () {
@@ -17,13 +17,23 @@ void main() {
 
     test('authenticated users leave public routes', () {
       expect(resolveRedirect(SessionStatus.authenticated, AppRoutes.signIn), AppRoutes.home);
-      expect(resolveRedirect(SessionStatus.authenticated, AppRoutes.splash), AppRoutes.home);
+      expect(resolveRedirect(SessionStatus.authenticated, AppRoutes.changePassword), AppRoutes.home);
       expect(resolveRedirect(SessionStatus.authenticated, '/batches/3'), isNull);
+    });
+
+    test('a temporary password confines the user to the password change', () {
+      expect(resolveRedirect(SessionStatus.passwordChangeRequired, AppRoutes.home), AppRoutes.changePassword);
+      expect(resolveRedirect(SessionStatus.passwordChangeRequired, AppRoutes.changePassword), isNull);
     });
 
     test('incomplete setup is confined to the setup page', () {
       expect(resolveRedirect(SessionStatus.setupRequired, AppRoutes.home), AppRoutes.setupRequired);
       expect(resolveRedirect(SessionStatus.setupRequired, AppRoutes.setupRequired), isNull);
+    });
+
+    test('only quality managers open the subscription', () {
+      expect(resolveRedirect(SessionStatus.authenticated, AppRoutes.billing), AppRoutes.more);
+      expect(resolveRedirect(SessionStatus.authenticated, AppRoutes.billing, canManageQuality: true), isNull);
     });
   });
 
@@ -33,39 +43,53 @@ void main() {
     });
 
     test('unsupported languages fall back to English', () {
-      expect(
-        AppLocalizations.resolve(const Locale('fr'), AppLocalizations.supportedLocales),
-        const Locale('en'),
-      );
-      expect(
-        AppLocalizations.resolve(const Locale('es', 'PE'), AppLocalizations.supportedLocales),
-        const Locale('es'),
-      );
+      expect(AppLocalizations.resolve(const Locale('fr'), AppLocalizations.supportedLocales), const Locale('en'));
+      expect(AppLocalizations.resolve(const Locale('es', 'PE'), AppLocalizations.supportedLocales), const Locale('es'));
+    });
+
+    test('metrics are named by code and unknown ones keep the raw text', () {
+      final en = AppLocalizations(const Locale('en'));
+      expect(metricLabel(en, 'TEMPERATURE'), en.metricTemperature);
+      expect(alertVariable(en, 'DOOR_OPEN'), 'Door open');
+      expect(timeInRangeTone(100), BadgeTone.success);
+      expect(timeInRangeTone(99.5), BadgeTone.warning);
+      expect(timeInRangeTone(null), BadgeTone.neutral);
     });
 
     test('placeholders are replaced', () {
       final es = AppLocalizations(const Locale('es'));
       expect(es.pageOf(1, 3), 'Página 1 de 3');
-      expect(AppLocalizations(const Locale('en')).lowStockAlert(3), '3 materials are below the minimum stock');
+      expect(es.connectedOfTotal(2, 3), '2 de 3 dispositivos conectados');
+      expect(
+        AppLocalizations(const Locale('en')).noticeBatchReleased('Billy', 'LOT-1'),
+        'Billy released batch LOT-1.',
+      );
     });
 
-    test('platform KPI names are readable and unknown names are kept', () {
-      final es = AppLocalizations(const Locale('es'));
-      expect(kpiMetricLabel(es, 'unresolved-alert-count'), 'Alertas sin resolver');
-      expect(kpiMetricLabel(AppLocalizations(const Locale('en')), 'batch-count'), 'Batches');
-      expect(kpiMetricLabel(es, 'custom-metric'), 'custom-metric');
+    // The Home breaks its banner only after ': ' and a row detail only at ' · ': a
+    // translation without them would wrap anywhere, so it fails here instead.
+    test('every language keeps the separators the Home wraps its texts at', () {
+      for (final locale in AppLocalizations.supportedLocales) {
+        final i18n = AppLocalizations(locale);
+        for (final banner in [i18n.homeStatusCritical(2), i18n.homeStatusCriticalOne]) {
+          expect(banner, contains(': '), reason: '$locale');
+        }
+        for (final detail in [
+          i18n.homeAlertsDetail(3, 2),
+          i18n.homeAlertsDetailOneAcknowledged(3),
+          i18n.homeBatchesDetail(2, 3),
+          i18n.homeBatchesDetailOnePending(3),
+        ]) {
+          expect(detail, contains(' · '), reason: '$locale');
+        }
+      }
     });
 
-    test('telemetry metrics are translated and unknown ones are kept', () {
+    test('batches in progress read "En proceso", as the style guide and Web say', () {
       final es = AppLocalizations(const Locale('es'));
-      final en = AppLocalizations(const Locale('en'));
-      expect(metricLabel(es, 'TEMPERATURE'), 'Temperatura');
-      expect(metricLabel(es, 'HUMIDITY'), 'Humedad');
-      expect(metricLabel(es, 'LUMINOSITY'), 'Luminosidad');
-      expect(metricLabel(es, 'air quality'), 'Calidad del aire');
-      expect(metricLabel(es, 'rfid-tag'), 'Etiqueta RFID');
-      expect(metricLabel(en, 'Humidity'), 'Humidity');
-      expect(metricLabel(es, 'PRESSURE'), 'PRESSURE');
+      expect(es.batchInProgress, 'En proceso');
+      expect(es.homeBatchesInProgress, 'Lotes en proceso');
+      expect(es.homeBatchesDetail(2, 3), '2 pendientes · 3 en proceso');
     });
   });
 }
