@@ -1,75 +1,46 @@
 import 'package:flutter/material.dart';
 
-import '../../../shared/presentation/l10n/app_localizations.dart';
-import '../../../shared/presentation/widgets/status_badge.dart';
-import '../../domain/telemetry.dart';
+import '../../../common/presentation/i18n/app_localizations.dart';
+import '../../../common/presentation/labels.dart';
+import '../../../common/presentation/widgets/status_badge.dart';
+import '../../domain/entities/environmental_state.dart';
+import '../../domain/entities/monitored_metric.dart';
 
-extension TelemetryStatusPresentation on TelemetryStatus {
+extension MonitoredMetricPresentation on MonitoredMetric {
+  String label(AppLocalizations i18n, {String? raw}) => metricLabel(i18n, code, raw: raw);
+
+  IconData get icon => switch (this) {
+    MonitoredMetric.airQuality => Icons.air_outlined,
+    MonitoredMetric.motion => Icons.directions_walk_outlined,
+    MonitoredMetric.temperature => Icons.thermostat_outlined,
+    MonitoredMetric.humidity => Icons.water_drop_outlined,
+    MonitoredMetric.luminosity => Icons.light_mode_outlined,
+    MonitoredMetric.rfidTag => Icons.nfc_outlined,
+    MonitoredMetric.unknown => Icons.sensors_outlined,
+  };
+}
+
+extension EnvironmentalStatePresentation on EnvironmentalState {
   BadgeTone get tone => switch (this) {
-    TelemetryStatus.operational => BadgeTone.success,
-    TelemetryStatus.warning => BadgeTone.warning,
-    TelemetryStatus.critical => BadgeTone.critical,
-    TelemetryStatus.offline => BadgeTone.neutral,
-    TelemetryStatus.unknown => BadgeTone.neutral,
+    EnvironmentalState.normal => BadgeTone.success,
+    EnvironmentalState.warning => BadgeTone.warning,
+    EnvironmentalState.critical => BadgeTone.critical,
+    EnvironmentalState.unknown => BadgeTone.neutral,
   };
 
-  String label(AppLocalizations l10n) => switch (this) {
-    TelemetryStatus.operational => l10n.telemetryOperational,
-    TelemetryStatus.warning => l10n.telemetryWarning,
-    TelemetryStatus.critical => l10n.telemetryCritical,
-    TelemetryStatus.offline => l10n.telemetryOffline,
-    TelemetryStatus.unknown => l10n.unknown,
+  String label(AppLocalizations i18n) => switch (this) {
+    EnvironmentalState.normal => i18n.stateNormal,
+    EnvironmentalState.warning => i18n.stateWarning,
+    EnvironmentalState.critical => i18n.stateCritical,
+    EnvironmentalState.unknown => i18n.notEvaluated,
   };
 }
 
-class TelemetryStatusBadge extends StatelessWidget {
-  const TelemetryStatusBadge({super.key, required this.status});
+class StateBadge extends StatelessWidget {
+  const StateBadge({super.key, required this.state});
 
-  final EquipmentTelemetryStatus? status;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final value = status;
-    if (value == null) {
-      return StatusBadge(
-        label: l10n.telemetryUnavailable,
-        tone: BadgeTone.neutral,
-        icon: Icons.sensors_off_outlined,
-      );
-    }
-    return StatusBadge(label: value.currentStatus.label(l10n), tone: value.currentStatus.tone);
-  }
-}
-
-class OnlineBadge extends StatelessWidget {
-  const OnlineBadge({super.key, required this.online});
-
-  final bool online;
+  final EnvironmentalState state;
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return StatusBadge(
-      label: online ? l10n.online : l10n.offline,
-      tone: online ? BadgeTone.success : BadgeTone.neutral,
-      icon: online ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-    );
-  }
-}
-
-/// Icon used for a telemetry parameter card; falls back to a generic sensor.
-IconData parameterIcon(String parameter) {
-  final p = parameter.toLowerCase();
-  if (p.contains('temp')) return Icons.thermostat_outlined;
-  if (p.contains('hum')) return Icons.water_drop_outlined;
-  if (p.contains('air') || p.contains('aire') || p.contains('co2') || p.contains('aqi')) {
-    return Icons.air_outlined;
-  }
-  if (p.contains('lumin') || p.contains('light')) return Icons.light_mode_outlined;
-  if (p.contains('motion') || p.contains('mov')) return Icons.directions_run_outlined;
-  if (p.contains('press')) return Icons.speed_outlined;
-  if (p.contains('volt')) return Icons.bolt_outlined;
-  if (p.contains('rpm')) return Icons.rotate_right_outlined;
-  return Icons.sensors_outlined;
+  Widget build(BuildContext context) => StatusBadge(label: state.label(context.i18n), tone: state.tone);
 }
