@@ -1,84 +1,119 @@
+/// This file contains the Events, State, and BLoC for the Reports screen.
+///
+library;
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../common/domain/failure.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../application/reporting_facade_service.dart';
+import '../../domain/entities/reporting_enums.dart';
 
-import '../../../shared/domain/failure.dart';
-import '../../../shared/domain/value_objects.dart';
-import '../../../shared/infrastructure/http/api_exception_mapper.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../../shared/presentation/section.dart';
-import '../../application/reporting_queries.dart';
-import '../../domain/reporting.dart';
-
-final class ReportsData extends Equatable {
-  const ReportsData({required this.kpi, required this.reports, this.kpiFailure});
-
-  /// Null when no KPI dashboard has been calculated in Web yet (HTTP 404).
-  final KpiDashboard? kpi;
-
-  /// Set when the KPI dashboard could not be read; the report history is still
-  /// displayed.
-  final Failure? kpiFailure;
-  final Section<AuditReport> reports;
-
-  bool get everythingFailed => kpiFailure != null && reports.failure != null;
-
+/// Base class for all Reports events.
+sealed class ReportsEvent extends Equatable {
+  const ReportsEvent();
   @override
-  List<Object?> get props => [kpi, kpiFailure, reports];
+  List<Object?> get props => [];
 }
 
-final class ReportsRequested extends Equatable {
+/// Event triggered when the user requests to load or refresh the reports data.
+final class ReportsRequested extends ReportsEvent {
   const ReportsRequested({this.refresh = false});
 
+  /// If true, shows a refreshing indicator instead of a full loading screen.
   final bool refresh;
 
   @override
   List<Object?> get props => [refresh];
 }
 
-/// Read-only: it never triggers report or KPI generation.
-class ReportsBloc extends Bloc<ReportsRequested, RemoteState<ReportsData>> {
+/// Event triggered when the user picks another period (24 hours, 7 days or
+/// 31 days).
+final class ReportsPeriodChanged extends ReportsEvent {
+  const ReportsPeriodChanged(this.period);
+
+  /// The period the user picked.
+  final ReportPeriod period;
+
+  @override
+  List<Object?> get props => [period];
+}
+
+/// Represents the current state of the Reports screen.
+class ReportsState extends Equatable {
+  const ReportsState({
+    this.remote = const RemoteState(),
+    this.period = ReportPeriod.last24Hours,
+  });
+
+  /// The reports data (indicators, trends, history) and the state of its request.
+  final RemoteState<ReportsData> remote;
+
+  /// The period currently selected.
+  final ReportPeriod period;
+
+  ReportsState copyWith({RemoteState<ReportsData>? remote, ReportPeriod? period}) =>
+      ReportsState(remote: remote ?? this.remote, period: period ?? this.period);
+
+  @override
+  List<Object?> get props => [remote, period];
+}
+
+/// BLoC that manages the state of the Reports screen.
+class ReportsBloc extends Bloc<ReportsEvent, ReportsState> {
   ReportsBloc({
-    required GetKpiDashboard getKpiDashboard,
-    required GetReportHistory getReportHistory,
+    required this.reportingService,
     required LaboratoryId Function() laboratoryId,
-  }) : _getKpi = getKpiDashboard,
-       _getReports = getReportHistory,
-       _laboratoryId = laboratoryId,
-       super(const RemoteState()) {
-    on<ReportsRequested>(_onRequested);
+  }) : _laboratoryId = laboratoryId,
+        super(const ReportsState()) {
+
+    on<ReportsRequested>((event, emit) => _load(emit, refresh: event.refresh));
+
+    on<ReportsPeriodChanged>((event, emit) async {
+      if (event.period == state.period) return;
+
+      emit(state.copyWith(period: event.period));
+
+      await _load(emit, refresh: true);
+    });
   }
 
-  final GetKpiDashboard _getKpi;
-  final GetReportHistory _getReports;
+  /// The facade that gathers the reports data.
+  final ReportingFacadeService reportingService;
+
+  /// The laboratory of the session.
   final LaboratoryId Function() _laboratoryId;
 
-  Future<void> _onRequested(ReportsRequested event, Emitter<RemoteState<ReportsData>> emit) async {
-    emit(event.refresh && state.hasData ? state.refreshingState() : state.loading());
+  /// Number of the latest request: the answer of an earlier one (another
+  /// period, or a refresh that took longer) is ignored, so a slow answer never
+  /// replaces the data of the period on screen.
+  int _latestRequest = 0;
+
+  /// Loads the reports data of the selected period.
+  Future<void> _load(Emitter<ReportsState> emit, {required bool refresh}) async {
+    final request = ++_latestRequest;
+    final current = state.remote;
+
+    emit(state.copyWith(
+      remote: refresh && current.hasData
+          ? current.refreshingState()
+          : current.loading(),
+    ));
+
     try {
-      final lab = _laboratoryId();
-      // Both parts load independently: a failing KPI dashboard must not hide
-      // the report history, and vice versa.
-      KpiDashboard? kpi;
-      Failure? kpiFailure;
-      try {
-        kpi = await _getKpi(lab);
-      } on UnauthorizedFailure {
-        rethrow;
-      } on OnboardingRequiredFailure {
-        rethrow;
-      } on Failure catch (failure) {
-        kpiFailure = failure;
-      }
-      final reports = await Section.load(() => _getReports(lab));
-      final data = ReportsData(kpi: kpi, kpiFailure: kpiFailure, reports: reports);
+      final data = await reportingService.loadReportsData(_laboratoryId(), state.period);
+      if (request != _latestRequest) return;
+
       if (data.everythingFailed) {
-        emit(state.failed(kpiFailure!));
+        emit(state.copyWith(remote: state.remote.failed(data.kpiFailure!)));
         return;
       }
-      final empty = kpi == null && kpiFailure == null && reports.failure == null && reports.items.isEmpty;
-      emit(state.success(data, empty: empty));
+
+      emit(state.copyWith(remote: state.remote.success(data)));
     } catch (error) {
-      emit(state.failed(ApiExceptionMapper.map(error)));
+      if (request != _latestRequest) return;
+      emit(state.copyWith(remote: state.remote.failed(Failure.from(error))));
     }
   }
 }
