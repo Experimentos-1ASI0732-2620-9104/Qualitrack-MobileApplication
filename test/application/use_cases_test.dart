@@ -1,144 +1,415 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:qualitrack_mobile/batch/application/batch_use_cases.dart';
-import 'package:qualitrack_mobile/compliance/application/compliance_queries.dart';
-import 'package:qualitrack_mobile/iam/application/iam_use_cases.dart';
-import 'package:qualitrack_mobile/shared/domain/failure.dart';
-import 'package:qualitrack_mobile/shared/domain/value_objects.dart';
-import 'package:qualitrack_mobile/tracking/application/telemetry_queries.dart';
-import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
+import 'package:qualitrack_mobile/batch/application/batch_facade_service.dart';
+import 'package:qualitrack_mobile/batch/domain/entities/batch_traceability.dart';
+import 'package:qualitrack_mobile/command_center/application/get_command_center_summary.dart';
+import 'package:qualitrack_mobile/compliance/domain/entities/alert_severity.dart';
+import 'package:qualitrack_mobile/compliance/domain/entities/alert_status.dart';
+import 'package:qualitrack_mobile/compliance/domain/entities/notification_preferences.dart';
+import 'package:qualitrack_mobile/iam/application/iam_facade_service.dart';
+import 'package:qualitrack_mobile/inventory/application/inventory_facade_service.dart';
+import 'package:qualitrack_mobile/laboratory/application/laboratory_facade_service.dart';
+import 'package:qualitrack_mobile/laboratory/domain/entities/pharmaceutical_product.dart';
+import 'package:qualitrack_mobile/laboratory/domain/entities/staff_member.dart';
+import 'package:qualitrack_mobile/profile/application/profile_facade_service.dart';
+import 'package:qualitrack_mobile/profile/domain/entities/personal_data.dart';
+import 'package:qualitrack_mobile/profile/domain/entities/profile_photo.dart';
+import 'package:qualitrack_mobile/profile/domain/entities/user_profile.dart';
+import 'package:qualitrack_mobile/common/domain/failure.dart';
+import 'package:qualitrack_mobile/common/domain/value_objects.dart';
+import 'package:qualitrack_mobile/reporting/domain/entities/reporting_entities.dart';
+import 'package:qualitrack_mobile/subscription/application/subscription_facade_service.dart';
+import 'package:qualitrack_mobile/subscription/domain/entities/subscription.dart';
+import 'package:qualitrack_mobile/subscription/domain/entities/subscription_plan.dart';
+import 'package:qualitrack_mobile/tracking/api/index.dart';
+import 'package:qualitrack_mobile/tracking/application/telemetry_facade_service.dart';
 
 import '../helpers/fixtures.dart';
 import '../helpers/mocks.dart';
 
-void main() {
-  setUpAll(() => registerFallbackValue(sessionFixture()));
+const lab = LaboratoryId(7);
+const container = TelemetryTarget(deviceId: 10, environmentId: 3, containerMonitor: true);
 
-  group('SignIn', () {
-    late MockAuthRepository auth;
-    late MockSessionRepository sessions;
+void main() {
+  setUpAll(() {
+    registerFallbackValue(sessionFixture());
+    registerFallbackValue(container);
+    registerFallbackValue(lab);
+    registerFallbackValue(DateTime(2026));
+    registerFallbackValue(batchFixture());
+    registerFallbackValue(const PersonalData(fullName: 'x'));
+    registerFallbackValue(ProfilePhoto(bytes: Uint8List(1), contentType: 'image/png'));
+  });
+
+  group('IAM', () {
+    late MockIamRepository iam;
 
     setUp(() {
-      auth = MockAuthRepository();
-      sessions = MockSessionRepository();
+      iam = MockIamRepository();
     });
 
-    test('trims username, signs in and stores the session', () async {
+    test('sign in trims the username and stores the session', () async {
       final session = sessionFixture();
-      when(() => auth.signIn(username: 'qa@lab.test', password: 'secret'))
-          .thenAnswer((_) async => session);
-      when(() => sessions.save(any())).thenAnswer((_) async {});
+      when(() => iam.signIn(username: 'qa@lab.test', password: 'secret')).thenAnswer((_) async => session);
+      when(() => iam.saveSession(any())).thenAnswer((_) async {});
 
-      final result = await SignIn(auth, sessions)(username: '  qa@lab.test ', password: 'secret');
+      final result = await IamFacadeService(repository: iam).signIn(username: '  qa@lab.test ', password: 'secret');
 
       expect(result, session);
-      verify(() => sessions.save(session)).called(1);
+      verify(() => iam.saveSession(session)).called(1);
     });
 
-    test('rejects empty credentials without calling the backend', () {
+    test('sign in rejects empty credentials without calling the backend', () {
+      expect(() => IamFacadeService(repository: iam).signIn(username: ' ', password: ''), throwsA(isA<BadRequestFailure>()));
+      verifyNever(() => iam.signIn(username: any(named: 'username'), password: any(named: 'password')));
+    });
+
+    test('restore clears an expired session', () async {
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture(expiresAt: DateTime.utc(2020)));
+      when(() => iam.clearSession()).thenAnswer((_) async {});
+
+      expect(await IamFacadeService(repository: iam).restoreSession(), isNull);
+      verify(() => iam.clearSession()).called(1);
+    });
+
+    test('change password requires both passwords', () async {
       expect(
-        () => SignIn(auth, sessions)(username: ' ', password: ''),
+        () => IamFacadeService(repository: iam).changePassword(currentPassword: '', newPassword: 'abcd1234'),
         throwsA(isA<BadRequestFailure>()),
       );
-      verifyNever(() => auth.signIn(username: any(named: 'username'), password: any(named: 'password')));
+      when(() => iam.changePassword(currentPassword: 'old12345', newPassword: 'new12345')).thenAnswer((_) async {});
+      await IamFacadeService(repository: iam).changePassword(currentPassword: 'old12345', newPassword: 'new12345');
+      verify(() => iam.changePassword(currentPassword: 'old12345', newPassword: 'new12345')).called(1);
     });
   });
 
-  group('RestoreSession', () {
-    test('clears an expired session', () async {
-      final sessions = MockSessionRepository();
-      when(() => sessions.load()).thenAnswer(
-        (_) async => sessionFixture(expiresAt: DateTime.utc(2020)),
+  group('Laboratory', () {
+    test('catalog adds up the products of every environment, by name', () async {
+      final repo = MockLaboratoryRepository();
+      when(() => repo.getEnvironments(lab)).thenAnswer((_) async => [production, storage]);
+      when(() => repo.getProducts(lab, 3)).thenAnswer(
+        (_) async => [const PharmaceuticalProduct(id: 1, environmentId: 3, code: 'P1', name: 'Zinc', active: true)],
       );
-      when(() => sessions.clear()).thenAnswer((_) async {});
+      when(() => repo.getProducts(lab, 4)).thenAnswer(
+        (_) async => [const PharmaceuticalProduct(id: 2, environmentId: 4, code: 'P2', name: 'Amoxicillin', active: true)],
+      );
 
-      expect(await RestoreSession(sessions)(), isNull);
-      verify(() => sessions.clear()).called(1);
+      final catalog = await LaboratoryFacadeService(repository: repo).getProductCatalog(lab);
+
+      expect(catalog.environments.map((e) => e.code), ['ALM-01', 'PRD-01']);
+      expect(catalog.products.map((p) => p.name), ['Amoxicillin', 'Zinc']);
     });
 
-    test('returns a valid session', () async {
-      final sessions = MockSessionRepository();
-      final session = sessionFixture();
-      when(() => sessions.load()).thenAnswer((_) async => session);
-      expect(await RestoreSession(sessions)(), session);
+    test('user directory maps accounts to names', () async {
+      final repo = MockLaboratoryRepository();
+      when(() => repo.getStaff(lab)).thenAnswer(
+        (_) async => const [
+          StaffMember(id: 1, fullName: 'Lucía Ramos', active: true, userId: 5),
+          StaffMember(id: 2, fullName: 'No account', active: true),
+        ],
+      );
+      expect(await LaboratoryFacadeService(repository: repo).getUserDirectory(lab), {5: 'Lucía Ramos'});
     });
   });
 
   group('Compliance', () {
-    test('sorts the laboratory alerts by priority', () async {
+    test('alerts of every environment are deduplicated and sorted', () async {
       final repo = MockComplianceRepository();
-      when(() => repo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => [
-        alertFixture(id: 1, equipmentId: 1, timestamp: DateTime.utc(2026, 1, 1)),
-        alertFixture(id: 2, equipmentId: 2, timestamp: DateTime.utc(2026, 2, 1)),
-      ]);
+      when(() => repo.getEnvironmentAlerts(lab, 3)).thenAnswer(
+        (_) async => [alertFixture(id: 1, timestamp: DateTime.utc(2026, 1, 1))],
+      );
+      when(() => repo.getEnvironmentAlerts(lab, 4)).thenAnswer(
+        (_) async => [
+          alertFixture(id: 2, environmentId: 4, timestamp: DateTime.utc(2026, 2, 1)),
+          alertFixture(id: 1, timestamp: DateTime.utc(2026, 1, 1)),
+        ],
+      );
 
-      final alerts = await GetLaboratoryAlerts(repo)(const LaboratoryId(7));
+      final alerts = await complianceFacade(repo).getLaboratoryAlerts(lab, [3, 4]);
 
       expect(alerts.map((a) => a.id), [2, 1]);
     });
 
     test('resolve requires notes before calling the backend', () {
       final repo = MockComplianceRepository();
+      expect(() => complianceFacade(repo).resolveAlert(1, '  '), throwsA(isA<BadRequestFailure>()));
+      verifyNoMoreInteractions(repo);
+    });
+
+    test('preferences only accept warning or critical as minimum severity', () {
+      final repo = MockComplianceRepository();
       expect(
-        () => ResolveAlert(repo)(alertId: 1, resolutionNotes: '  '),
+        () => complianceFacade(repo).updatePreferences(
+          const NotificationPreferences(inAppEnabled: true, emailEnabled: false, minimumSeverity: AlertSeverity.low),
+        ),
         throwsA(isA<BadRequestFailure>()),
       );
       verifyNoMoreInteractions(repo);
     });
   });
 
-  group('Batch review', () {
+  group('Batch', () {
+    test('traceability looks the batch up in the laboratory first', () async {
+      final repo = MockBatchRepository();
+      final batch = batchFixture(id: 3);
+      when(() => repo.getByLaboratory(lab)).thenAnswer((_) async => [batchFixture(id: 1), batch]);
+      when(() => repo.getTraceability(lab, batch)).thenAnswer((_) async => BatchTraceability(batch: batch));
+
+      final traceability = await BatchFacadeService(repository: repo).getTraceability(lab, 3);
+
+      expect(traceability.batch, batch);
+    });
+
+    test('an unknown batch is not found', () {
+      final repo = MockBatchRepository();
+      when(() => repo.getByLaboratory(lab)).thenAnswer((_) async => [batchFixture(id: 1)]);
+      expect(() => BatchFacadeService(repository: repo).getTraceability(lab, 99), throwsA(isA<NotFoundFailure>()));
+    });
+
     test('release sends ISO date and trimmed notes', () async {
       final repo = MockBatchRepository();
-      when(() => repo.release(batchId: 3, releaseDate: '2026-09-04', notes: 'Approved'))
-          .thenAnswer((_) async => batchFixture());
+      final batch = batchFixture();
+      when(() => repo.release(lab, batch, releaseDate: '2026-09-04', notes: 'Approved')).thenAnswer((_) async {});
 
-      await ReleaseExistingBatch(repo)(
-        batchId: 3,
-        releaseDate: DateTime(2026, 9, 4, 18, 30),
-        notes: ' Approved ',
-      );
+      await BatchFacadeService(repository: repo).release(lab, batch, releaseDate: DateTime(2026, 9, 4, 18, 30), notes: ' Approved ');
 
-      verify(() => repo.release(batchId: 3, releaseDate: '2026-09-04', notes: 'Approved')).called(1);
+      verify(() => repo.release(lab, batch, releaseDate: '2026-09-04', notes: 'Approved')).called(1);
     });
 
     test('reject requires a reason', () {
       final repo = MockBatchRepository();
       expect(
-        () => RejectExistingBatch(repo)(batchId: 3, rejectionDate: DateTime(2026), reason: ''),
+        () => BatchFacadeService(repository: repo).reject(lab, batchFixture(), rejectionDate: DateTime(2026), reason: ''),
         throwsA(isA<BadRequestFailure>()),
       );
     });
   });
 
   group('Telemetry', () {
-    test('history range is only sent when both bounds are present', () async {
+    test('periods longer than 31 days are rejected before calling the backend', () {
       final repo = MockTelemetryRepository();
-      when(() => repo.getHistory(10, from: null, to: null)).thenAnswer((_) async => const []);
-      await GetTelemetryHistory(repo)(10, from: DateTime(2026));
-      verify(() => repo.getHistory(10, from: null, to: null)).called(1);
+      final to = DateTime.utc(2026, 6, 30);
+      expect(
+        () => TelemetryFacadeService(repository: repo).getMeasurements(lab, container, from: to.subtract(const Duration(days: 40)), to: to),
+        throwsA(isA<BadRequestFailure>()),
+      );
+      verifyNoMoreInteractions(repo);
     });
 
-    test('statuses tolerate a single failing equipment', () async {
+    test('readings of other devices of the environment are ignored', () async {
       final repo = MockTelemetryRepository();
-      when(() => repo.getStatus(1)).thenAnswer(
-        (_) async => const EquipmentTelemetryStatus(
-          equipmentId: 1,
-          isOnline: true,
-          currentStatus: TelemetryStatus.operational,
+      when(() => repo.getMeasurements(lab, container, from: any(named: 'from'), to: any(named: 'to'))).thenAnswer(
+        (_) async => [measurementFixture(id: 1), measurementFixture(id: 2, deviceId: 11)],
+      );
+      final to = DateTime.utc(2026, 6, 30);
+      final points = await TelemetryFacadeService(repository: repo).getMeasurements(lab, container, from: to.subtract(const Duration(hours: 24)), to: to);
+      expect(points.map((p) => p.id), [1]);
+    });
+
+    test('connections tolerate a failing device and rethrow authentication problems', () async {
+      final repo = MockTelemetryRepository();
+      const other = TelemetryTarget(deviceId: 11, environmentId: 3, containerMonitor: false);
+      when(() => repo.getConnection(lab, container)).thenAnswer(
+        (_) async => const DeviceConnection(deviceId: 10, status: ConnectionStatus.connected),
+      );
+      when(() => repo.getConnection(lab, other)).thenThrow(const ServerFailure(statusCode: 500));
+
+      expect((await TelemetryFacadeService(repository: repo).getConnections(lab, [container, other])).keys, [10]);
+
+      when(() => repo.getConnection(lab, other)).thenThrow(const UnauthorizedFailure());
+      expect(() => TelemetryFacadeService(repository: repo).getConnections(lab, [other]), throwsA(isA<UnauthorizedFailure>()));
+    });
+
+    test('getProfiles reads each device and leaves out the ones without a profile or that fail', () async {
+      final repo = MockTelemetryRepository();
+      const none = TelemetryTarget(deviceId: 11, environmentId: 3, containerMonitor: true);
+      const failing = TelemetryTarget(deviceId: 12, environmentId: 3, containerMonitor: true);
+      when(() => repo.getProfile(lab, container)).thenAnswer((_) async => const EnvironmentalProfile(version: 1));
+      when(() => repo.getProfile(lab, none)).thenAnswer((_) async => null);
+      when(() => repo.getProfile(lab, failing)).thenThrow(const ServerFailure(statusCode: 500));
+
+      final profiles = await TelemetryFacadeService(repository: repo).getProfiles(lab, [container, none, failing]);
+
+      expect(profiles.keys, [10]);
+    });
+
+    test('getProfiles lets an ended session through', () {
+      final repo = MockTelemetryRepository();
+      when(() => repo.getProfile(lab, container)).thenThrow(const UnauthorizedFailure());
+
+      expect(
+        () => TelemetryFacadeService(repository: repo).getProfiles(lab, [container]),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+    });
+
+    test('alertThresholds gives the most urgent unresolved alerts the range of their metric, '
+        'reading each device once', () async {
+      final repo = MockTelemetryRepository();
+      TelemetryTarget target(int device) => TelemetryTarget(deviceId: device, environmentId: 3, containerMonitor: true);
+      const temperature = MetricThreshold(
+        metric: MonitoredMetric.temperature,
+        unit: '°C',
+        normalMin: 15,
+        normalMax: 30,
+      );
+      when(() => repo.getProfile(lab, target(10))).thenAnswer(
+        (_) async => const EnvironmentalProfile(version: 1, thresholds: [temperature]),
+      );
+      when(() => repo.getProfile(lab, target(11))).thenAnswer(
+        (_) async => const EnvironmentalProfile(
+          version: 1,
+          thresholds: [MetricThreshold(metric: MonitoredMetric.humidity, unit: '%', normalMax: 60)],
         ),
       );
-      when(() => repo.getStatus(2)).thenThrow(const ServerFailure(statusCode: 500));
+      when(() => repo.getProfile(lab, target(12))).thenAnswer((_) async => null);
+      final open = [
+        // The fifth unresolved alert is the least urgent: a warning.
+        alertFixture(id: 5, equipmentId: 13, severity: AlertSeverity.warning),
+        alertFixture(id: 1, equipmentId: 10),
+        alertFixture(id: 2, equipmentId: 10),
+        alertFixture(id: 3, equipmentId: 11),
+        alertFixture(id: 4, equipmentId: 12),
+        alertFixture(id: 6, equipmentId: 14, status: AlertStatus.acknowledged),
+      ];
 
-      final statuses = await GetTelemetryStatuses(repo)([1, 2]);
+      final thresholds = await alertThresholds(TelemetryApi(TelemetryFacadeService(repository: repo)), lab, open);
 
-      expect(statuses.keys, [1]);
+      expect(thresholds, {1: temperature, 2: temperature});
+      verify(() => repo.getProfile(lab, target(10))).called(1);
+      verifyNever(() => repo.getProfile(lab, target(13)));
+      verifyNever(() => repo.getProfile(lab, target(14)));
     });
 
-    test('statuses rethrow authentication failures', () {
+    test('environmental devices have no automatic actions', () async {
       final repo = MockTelemetryRepository();
-      when(() => repo.getStatus(1)).thenThrow(const UnauthorizedFailure());
-      expect(() => GetTelemetryStatuses(repo)([1]), throwsA(isA<UnauthorizedFailure>()));
+      const environmental = TelemetryTarget(deviceId: 1, environmentId: 3, containerMonitor: false);
+      expect(await TelemetryFacadeService(repository: repo).getActuationEvents(lab, environmental, from: DateTime(2026), to: DateTime(2026, 2)), isEmpty);
+      verifyNoMoreInteractions(repo);
+    });
+
+    test('only located IoT devices are telemetry targets', () {
+      expect(targetOf(equipmentFixture()), container);
+      expect(targetOf(equipmentFixture(environmentId: null)), isNull);
+      expect(targetOf(equipmentFixture(deviceType: null)), isNull);
+      expect(telemetryDevices([equipmentFixture(), equipmentFixture(id: 2, deviceType: null)]).map((e) => e.id), [10]);
+    });
+  });
+
+  group('Inventory', () {
+    test('materials of every environment, low stock first', () async {
+      final repo = MockInventoryRepository();
+      when(() => repo.getMaterials(lab, 3)).thenAnswer(
+        (_) async => [materialFixture(id: 1, name: 'Almidón', stockStatus: 'SUFFICIENT')],
+      );
+      when(() => repo.getMaterials(lab, 4)).thenAnswer(
+        (_) async => [materialFixture(id: 2, environmentId: 4, name: 'Zinc', stockStatus: 'LOW')],
+      );
+      final materials = await InventoryFacadeService(repository: repo).getMaterials(lab, [3, 4]);
+      expect(materials.map((m) => m.id), [2, 1]);
+    });
+  });
+
+  group('Profile', () {
+    test('invalid personal data is not sent', () {
+      final repo = MockProfileRepository();
+      expect(
+        () => ProfileFacadeService(repository: repo).updateMyProfile(const PersonalData(fullName: 'Lucía', dni: '123')),
+        throwsA(isA<BadRequestFailure>()),
+      );
+      verifyNoMoreInteractions(repo);
+    });
+
+    test('empty optional fields are sent as null', () async {
+      final repo = MockProfileRepository();
+      when(() => repo.updateMine(any())).thenAnswer((_) async => const UserProfile(userId: 1, username: 'u'));
+      await ProfileFacadeService(repository: repo).updateMyProfile(const PersonalData(fullName: ' Lucía Ramos ', dni: ' ', phoneNumber: '987654321'));
+      verify(() => repo.updateMine(const PersonalData(fullName: 'Lucía Ramos', phoneNumber: '987654321'))).called(1);
+    });
+
+    test('photos over 2 MB or of other types are rejected', () {
+      final repo = MockProfileRepository();
+      expect(
+        () => ProfileFacadeService(repository: repo).uploadMyPhoto(ProfilePhoto(bytes: Uint8List(ProfilePhoto.maxBytes + 1), contentType: 'image/png')),
+        throwsA(isA<BadRequestFailure>()),
+      );
+      expect(
+        () => ProfileFacadeService(repository: repo).uploadMyPhoto(ProfilePhoto(bytes: Uint8List(10), contentType: 'image/gif')),
+        throwsA(isA<BadRequestFailure>()),
+      );
+      verifyNoMoreInteractions(repo);
+    });
+  });
+
+  group('Reporting', () {
+    test('audit trails come newest first, undated entries last', () async {
+      final repo = MockReportingRepository();
+      when(() => repo.getBatchAuditLogs(3)).thenAnswer(
+        (_) async => [
+          const AuditLogEntry(id: 1, action: 'RELEASE'),
+          AuditLogEntry(id: 2, action: 'CREATE', timestamp: DateTime.utc(2026, 9, 1)),
+          AuditLogEntry(id: 3, action: 'UPDATE', timestamp: DateTime.utc(2026, 9, 5)),
+        ],
+      );
+
+      final logs = await reportingFacade(repo).getBatchAuditLogs(3);
+
+      expect(logs.map((e) => e.id), [3, 2, 1]);
+    });
+
+    test('trends of every environment come most severe first', () async {
+      final repo = MockReportingRepository();
+      DeviationTrend trend(String name, {int deviations = 0, int critical = 0}) => DeviationTrend(
+        parameterName: name,
+        equipmentId: 1,
+        direction: TrendDirection.stable,
+        evaluatedReadings: 10,
+        deviationCount: deviations,
+        criticalDeviationCount: critical,
+      );
+      when(() => repo.getDeviationTrends(lab, 3, from: any(named: 'from'), to: any(named: 'to')))
+          .thenAnswer((_) async => [trend('HUMIDITY'), trend('TEMPERATURE', deviations: 2, critical: 1)]);
+      when(() => repo.getDeviationTrends(lab, 4, from: any(named: 'from'), to: any(named: 'to')))
+          .thenAnswer((_) async => [trend('MOTION', deviations: 1)]);
+
+      final trends = await reportingFacade(repo).getDeviationTrends(lab, [3, 4], ReportPeriod.last7Days);
+
+      expect(trends.map((t) => t.parameterName), ['TEMPERATURE', 'MOTION', 'HUMIDITY']);
+    });
+  });
+
+  group('Subscription', () {
+    test('billing summary uses the active subscription and its plan', () async {
+      final repo = MockSubscriptionRepository();
+      const old = Subscription(id: 1, laboratoryId: 7, planCode: 'BASIC', billingCycle: 'MONTHLY', status: 'CANCELLED');
+      final active = Subscription(
+        id: 2,
+        laboratoryId: 7,
+        planCode: 'BASIC',
+        billingCycle: 'MONTHLY',
+        status: 'ACTIVE',
+        currentPeriodStart: DateTime.utc(2026, 10),
+      );
+      when(() => repo.getSubscriptions(lab)).thenAnswer((_) async => [old, active]);
+      when(() => repo.getPlans()).thenAnswer(
+        (_) async => const [SubscriptionPlan(code: 'BASIC', name: 'Standard Lab', billingCycle: 'MONTHLY')],
+      );
+      when(() => repo.getPayments(2)).thenAnswer((_) async => const []);
+
+      final summary = await SubscriptionFacadeService(repository: repo).getBillingSummary(lab);
+
+      expect(summary.active, active);
+      expect(summary.plan?.name, 'Standard Lab');
+      expect(summary.subscriptions.first, active);
+      expect(summary.planNameOf(old), 'Standard Lab');
+      expect(
+        summary.planNameOf(
+          const Subscription(id: 3, laboratoryId: 7, planCode: 'PRO', billingCycle: 'YEARLY', status: 'CANCELLED'),
+        ),
+        'PRO',
+      );
     });
   });
 }
