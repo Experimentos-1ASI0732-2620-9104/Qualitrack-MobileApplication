@@ -1,28 +1,32 @@
+import '../../../common/domain/failure.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../shared/domain/value_objects.dart';
-import '../../../shared/infrastructure/http/api_exception_mapper.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../../tracking/application/telemetry_queries.dart';
-import '../../../tracking/domain/telemetry.dart';
-import '../../application/equipment_queries.dart';
-import '../../domain/equipment.dart';
+import '../../../laboratory/api/index.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../../tracking/api/index.dart';
+import '../../application/equipment_facade_service.dart';
+import '../../domain/entities/equipment.dart';
+import '../../domain/entities/equipment_status.dart';
 
-/// Equipment enriched with its Tracking status (UI composition only).
+/// Equipment with its environment and, for IoT devices, the connection
+/// status of Tracking (UI composition only).
 final class EquipmentOverview extends Equatable {
-  const EquipmentOverview({required this.equipment, this.telemetry});
+  const EquipmentOverview({required this.equipment, this.environmentName, this.connection});
 
   final Equipment equipment;
-  final EquipmentTelemetryStatus? telemetry;
+  final String? environmentName;
+  final DeviceConnection? connection;
 
-  bool get needsAttention => equipment.needsAttention || (telemetry?.needsAttention ?? false);
+  bool get needsAttention =>
+      equipment.needsAttention || (connection != null && connection!.status == ConnectionStatus.requiresReview);
 
   @override
-  List<Object?> get props => [equipment, telemetry];
+  List<Object?> get props => [equipment, environmentName, connection];
 }
 
-enum EquipmentFilter { all, attention, operational, maintenance, outOfService, inactive }
+enum EquipmentFilter { all, attention, iotDevices, edgeGateways, operational, maintenance, outOfService, inactive }
 
 sealed class EquipmentListEvent extends Equatable {
   const EquipmentListEvent();
@@ -59,38 +63,33 @@ final class EquipmentFilterChanged extends EquipmentListEvent {
 }
 
 final class EquipmentListState extends Equatable {
-  const EquipmentListState({
-    this.remote = const RemoteState(),
-    this.query = '',
-    this.filter = EquipmentFilter.all,
-  });
+  const EquipmentListState({this.remote = const RemoteState(), this.query = '', this.filter = EquipmentFilter.all});
 
   final RemoteState<List<EquipmentOverview>> remote;
   final String query;
   final EquipmentFilter filter;
 
   List<EquipmentOverview> get visible => (remote.data ?? const <EquipmentOverview>[])
-      .where((item) => item.equipment.matches(query) && _passes(item))
+      .where((item) => item.equipment.matches(query) && _passes(item, filter))
       .toList(growable: false);
 
-  bool _passes(EquipmentOverview item) => switch (filter) {
+  /// Equipment in [option] (ignoring the search), for the filter menu.
+  int countFor(EquipmentFilter option) =>
+      (remote.data ?? const <EquipmentOverview>[]).where((item) => _passes(item, option)).length;
+
+  static bool _passes(EquipmentOverview item, EquipmentFilter filter) => switch (filter) {
     EquipmentFilter.all => true,
     EquipmentFilter.attention => item.needsAttention,
+    EquipmentFilter.iotDevices => item.equipment.isIotDevice,
+    EquipmentFilter.edgeGateways => item.equipment.isEdgeGateway,
     EquipmentFilter.operational => item.equipment.status == EquipmentStatus.operational,
     EquipmentFilter.maintenance => item.equipment.status == EquipmentStatus.maintenance,
     EquipmentFilter.outOfService => item.equipment.status == EquipmentStatus.outOfService,
     EquipmentFilter.inactive => item.equipment.status == EquipmentStatus.inactive,
   };
 
-  EquipmentListState copyWith({
-    RemoteState<List<EquipmentOverview>>? remote,
-    String? query,
-    EquipmentFilter? filter,
-  }) => EquipmentListState(
-    remote: remote ?? this.remote,
-    query: query ?? this.query,
-    filter: filter ?? this.filter,
-  );
+  EquipmentListState copyWith({RemoteState<List<EquipmentOverview>>? remote, String? query, EquipmentFilter? filter}) =>
+      EquipmentListState(remote: remote ?? this.remote, query: query ?? this.query, filter: filter ?? this.filter);
 
   @override
   List<Object?> get props => [remote, query, filter];
@@ -98,11 +97,13 @@ final class EquipmentListState extends Equatable {
 
 class EquipmentListBloc extends Bloc<EquipmentListEvent, EquipmentListState> {
   EquipmentListBloc({
-    required GetEquipments getEquipments,
-    required GetTelemetryStatuses getTelemetryStatuses,
+    required EquipmentFacadeService equipmentService,
+    required LaboratoryApi laboratoryApi,
+    required TelemetryApi telemetryApi,
     required LaboratoryId Function() laboratoryId,
-  }) : _getEquipments = getEquipments,
-       _getStatuses = getTelemetryStatuses,
+  }) : _equipmentService = equipmentService,
+       _laboratoryApi = laboratoryApi,
+       _telemetryApi = telemetryApi,
        _laboratoryId = laboratoryId,
        super(const EquipmentListState()) {
     on<EquipmentListRequested>(_onRequested);
@@ -110,24 +111,28 @@ class EquipmentListBloc extends Bloc<EquipmentListEvent, EquipmentListState> {
     on<EquipmentFilterChanged>((e, emit) => emit(state.copyWith(filter: e.filter)));
   }
 
-  final GetEquipments _getEquipments;
-  final GetTelemetryStatuses _getStatuses;
+  final EquipmentFacadeService _equipmentService;
+  final LaboratoryApi _laboratoryApi;
+  final TelemetryApi _telemetryApi;
   final LaboratoryId Function() _laboratoryId;
 
   Future<void> _onRequested(EquipmentListRequested event, Emitter<EquipmentListState> emit) async {
     final current = state.remote;
-    emit(state.copyWith(
-      remote: event.refresh && current.hasData ? current.refreshingState() : current.loading(),
-    ));
+    emit(state.copyWith(remote: event.refresh && current.hasData ? current.refreshingState() : current.loading()));
     try {
-      final equipments = await _getEquipments(_laboratoryId());
-      final statuses = await _getStatuses(equipments.where((e) => e.hasDevice).map((e) => e.id).toList());
+      final lab = _laboratoryId();
+      final results = await Future.wait<Object>([_equipmentService.getEquipments(lab), _laboratoryApi.getEnvironments(lab)]);
+      final equipments = results[0] as List<Equipment>;
+      final environments = {for (final e in results[1] as List<LabEnvironment>) e.id: e.name};
+      final targets = equipments.map(targetOf).whereType<TelemetryTarget>().toList();
+      final connections = await _telemetryApi.getConnections(lab, targets);
       final items = [
-        for (final e in equipments) EquipmentOverview(equipment: e, telemetry: statuses[e.id]),
+        for (final e in equipments)
+          EquipmentOverview(equipment: e, environmentName: environments[e.environmentId], connection: connections[e.id]),
       ];
       emit(state.copyWith(remote: state.remote.success(items, empty: items.isEmpty)));
     } catch (error) {
-      emit(state.copyWith(remote: state.remote.failed(ApiExceptionMapper.map(error))));
+      emit(state.copyWith(remote: state.remote.failed(Failure.from(error))));
     }
   }
 }
