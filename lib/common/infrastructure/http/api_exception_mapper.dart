@@ -11,10 +11,7 @@ abstract final class ApiExceptionMapper {
     if (error is Failure) return error;
     if (error is DioException) return _fromDio(error);
     if (error is SocketException) return NetworkFailure(message: error.message);
-    if (error is FormatException || error is TypeError) {
-      return ParsingFailure(message: error.toString());
-    }
-    return UnexpectedFailure(message: error.toString());
+    return Failure.from(error);
   }
 
   static Failure _fromDio(DioException error) {
@@ -60,6 +57,8 @@ abstract final class ApiExceptionMapper {
     }
 
     if (status == 400) return BadRequestFailure(message: message, code: code);
+    if (status == 413) return BadRequestFailure(message: message, code: 'PAYLOAD_TOO_LARGE');
+    if (status == 415) return BadRequestFailure(message: message, code: 'UNSUPPORTED_MEDIA_TYPE');
     if (status == 401) return UnauthorizedFailure(message: message, code: code);
     if (status == 403) {
       if (code == 'ONBOARDING_REQUIRED') {
