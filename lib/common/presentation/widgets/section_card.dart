@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/theme/app_colors.dart';
-import '../../../app/theme/app_spacing.dart';
-import '../l10n/app_localizations.dart';
-import '../section.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../i18n/app_localizations.dart';
+import '../../application/section.dart';
 import 'failure_message.dart';
 import 'layout_widgets.dart';
 
@@ -12,14 +12,14 @@ import 'layout_widgets.dart';
 class SectionCard<T> extends StatelessWidget {
   const SectionCard({
     super.key,
-    required this.title,
+    this.title,
     required this.section,
     required this.itemBuilder,
     this.emptyMessage,
     this.maxItems,
   });
 
-  final String title;
+  final String? title;
   final Section<T> section;
   final Widget Function(BuildContext context, T item) itemBuilder;
   final String? emptyMessage;
@@ -43,7 +43,8 @@ class SectionCard<T> extends StatelessWidget {
         ],
       );
     } else if (section.items.isEmpty) {
-      body = Text(emptyMessage ?? context.l10n.noInformation, style: theme.textTheme.bodySmall);
+      // An empty section weighs less than one with content: no card.
+      return InfoCard(title: title, bare: true, child: EmptyNotice(message: emptyMessage ?? context.i18n.noInformation));
     } else {
       final items = maxItems == null ? section.items : section.items.take(maxItems!).toList();
       body = Column(
