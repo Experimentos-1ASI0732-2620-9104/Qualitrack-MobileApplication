@@ -1,12 +1,13 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../equipment/application/equipment_queries.dart';
-import '../../../shared/domain/failure.dart';
-import '../../../shared/infrastructure/http/api_exception_mapper.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../application/compliance_queries.dart';
-import '../../domain/compliance.dart';
+import '../../../equipment/api/index.dart';
+import '../../../laboratory/api/index.dart';
+import '../../../common/domain/failure.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../application/compliance_facade_service.dart';
+import '../../domain/entities/deviation_alert.dart';
 
 enum ReviewActionStatus { idle, submitting, success, failure }
 
@@ -36,17 +37,31 @@ final class AlertResolveSubmitted extends AlertDetailEvent {
   List<Object?> get props => [notes];
 }
 
+/// Names shown next to the alert; each one is optional and only a convenience.
+final class AlertContext extends Equatable {
+  const AlertContext({this.deviceName, this.environmentName, this.people = const {}});
+
+  final String? deviceName;
+  final String? environmentName;
+
+  /// Full names by user account.
+  final Map<int, String> people;
+
+  @override
+  List<Object?> get props => [deviceName, environmentName, people];
+}
+
 final class AlertDetailState extends Equatable {
   const AlertDetailState({
     this.alert = const RemoteState(),
-    this.equipmentName,
+    this.context = const AlertContext(),
     this.actionStatus = ReviewActionStatus.idle,
     this.lastAction,
     this.actionFailure,
   });
 
   final RemoteState<DeviationAlert> alert;
-  final String? equipmentName;
+  final AlertContext context;
   final ReviewActionStatus actionStatus;
   final AlertReviewAction? lastAction;
   final Failure? actionFailure;
@@ -55,34 +70,34 @@ final class AlertDetailState extends Equatable {
 
   AlertDetailState copyWith({
     RemoteState<DeviationAlert>? alert,
-    String? equipmentName,
+    AlertContext? context,
     ReviewActionStatus? actionStatus,
     AlertReviewAction? lastAction,
     Failure? actionFailure,
     bool clearActionFailure = false,
   }) => AlertDetailState(
     alert: alert ?? this.alert,
-    equipmentName: equipmentName ?? this.equipmentName,
+    context: context ?? this.context,
     actionStatus: actionStatus ?? this.actionStatus,
     lastAction: lastAction ?? this.lastAction,
     actionFailure: clearActionFailure ? null : (actionFailure ?? this.actionFailure),
   );
 
   @override
-  List<Object?> get props => [alert, equipmentName, actionStatus, lastAction, actionFailure];
+  List<Object?> get props => [alert, context, actionStatus, lastAction, actionFailure];
 }
 
 class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
   AlertDetailBloc({
     required this.alertId,
-    required GetAlertDetail getAlert,
-    required GetEquipment getEquipment,
-    required AcknowledgeAlert acknowledge,
-    required ResolveAlert resolve,
-  }) : _getAlert = getAlert,
-       _getEquipment = getEquipment,
-       _acknowledge = acknowledge,
-       _resolve = resolve,
+    required ComplianceFacadeService complianceService,
+    required EquipmentApi equipmentApi,
+    required LaboratoryApi laboratoryApi,
+    required LaboratoryId Function() laboratoryId,
+  }) : _complianceService = complianceService,
+       _equipmentApi = equipmentApi,
+       _laboratoryApi = laboratoryApi,
+       _laboratoryId = laboratoryId,
        super(const AlertDetailState()) {
     on<AlertDetailRequested>(_onRequested);
     on<AlertAcknowledgeSubmitted>(_onAcknowledge);
@@ -90,42 +105,51 @@ class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
   }
 
   final int alertId;
-  final GetAlertDetail _getAlert;
-  final GetEquipment _getEquipment;
-  final AcknowledgeAlert _acknowledge;
-  final ResolveAlert _resolve;
+  final ComplianceFacadeService _complianceService;
+  final EquipmentApi _equipmentApi;
+  final LaboratoryApi _laboratoryApi;
+  final LaboratoryId Function() _laboratoryId;
 
   Future<void> _onRequested(AlertDetailRequested event, Emitter<AlertDetailState> emit) async {
     emit(state.copyWith(alert: state.alert.loading()));
     try {
-      final alert = await _getAlert(alertId);
+      final alert = await _complianceService.getAlert(alertId);
       emit(state.copyWith(alert: state.alert.success(alert)));
-      await _loadEquipmentName(alert.equipmentId, emit);
+      emit(state.copyWith(context: await _loadContext(alert)));
     } catch (error) {
-      emit(state.copyWith(alert: state.alert.failed(ApiExceptionMapper.map(error))));
+      emit(state.copyWith(alert: state.alert.failed(Failure.from(error))));
     }
   }
 
-  Future<void> _loadEquipmentName(int equipmentId, Emitter<AlertDetailState> emit) async {
+  Future<AlertContext> _loadContext(DeviationAlert alert) async {
+    final laboratoryId = _laboratoryId();
+    final device = await _optional(() async => (await _equipmentApi.getEquipment(laboratoryId, alert.equipmentId)).name);
+    final environment = await _optional(() async {
+      for (final item in await _laboratoryApi.getEnvironments(laboratoryId)) {
+        if (item.id == alert.environmentId) return item.name;
+      }
+      return null;
+    });
+    final people = await _optional(() => _laboratoryApi.getUserDirectory(laboratoryId));
+    return AlertContext(deviceName: device, environmentName: environment, people: people ?? const {});
+  }
+
+  /// The ids are still displayed when a name cannot be read.
+  Future<T?> _optional<T>(Future<T?> Function() read) async {
     try {
-      final equipment = await _getEquipment(equipmentId);
-      emit(state.copyWith(equipmentName: equipment.name));
+      return await read();
     } on UnauthorizedFailure {
       rethrow;
     } on Failure {
-      // The equipment id is still displayed; the name is only a convenience.
+      return null;
     }
   }
 
   Future<void> _onAcknowledge(AlertAcknowledgeSubmitted event, Emitter<AlertDetailState> emit) =>
-      _run(emit, AlertReviewAction.acknowledge, () {
-        return _acknowledge(alertId: alertId);
-      });
+      _run(emit, AlertReviewAction.acknowledge, () => _complianceService.acknowledgeAlert(alertId));
 
   Future<void> _onResolve(AlertResolveSubmitted event, Emitter<AlertDetailState> emit) =>
-      _run(emit, AlertReviewAction.resolve, () {
-        return _resolve(alertId: alertId, resolutionNotes: event.notes);
-      });
+      _run(emit, AlertReviewAction.resolve, () => _complianceService.resolveAlert(alertId, event.notes));
 
   Future<void> _run(
     Emitter<AlertDetailState> emit,
@@ -133,22 +157,14 @@ class AlertDetailBloc extends Bloc<AlertDetailEvent, AlertDetailState> {
     Future<DeviationAlert> Function() command,
   ) async {
     if (state.submitting) return;
-    emit(state.copyWith(
-      actionStatus: ReviewActionStatus.submitting,
-      lastAction: action,
-      clearActionFailure: true,
-    ));
+    emit(state.copyWith(actionStatus: ReviewActionStatus.submitting, lastAction: action, clearActionFailure: true));
     try {
-      final updated = await command();
-      emit(state.copyWith(
-        alert: state.alert.success(updated),
-        actionStatus: ReviewActionStatus.success,
-      ));
+      await command();
+      // The detail includes the related automatic actions; the command result does not.
+      final updated = await _complianceService.getAlert(alertId);
+      emit(state.copyWith(alert: state.alert.success(updated), actionStatus: ReviewActionStatus.success));
     } catch (error) {
-      emit(state.copyWith(
-        actionStatus: ReviewActionStatus.failure,
-        actionFailure: ApiExceptionMapper.map(error),
-      ));
+      emit(state.copyWith(actionStatus: ReviewActionStatus.failure, actionFailure: Failure.from(error)));
     }
   }
 }
