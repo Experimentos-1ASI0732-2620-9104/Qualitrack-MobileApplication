@@ -1,0 +1,172 @@
+import 'dart:typed_data';
+
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../laboratory/api/index.dart';
+import '../../../common/domain/failure.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../application/profile_facade_service.dart';
+import '../../domain/entities/personal_data.dart';
+import '../../domain/entities/profile_photo.dart';
+import '../../domain/entities/user_profile.dart';
+
+final class ProfileData extends Equatable {
+  const ProfileData({required this.profile, this.photo, this.laboratory});
+
+  final UserProfile profile;
+  final Uint8List? photo;
+  final Laboratory? laboratory;
+
+  ProfileData copyWith({UserProfile? profile, Uint8List? photo, bool clearPhoto = false}) => ProfileData(
+    profile: profile ?? this.profile,
+    photo: clearPhoto ? null : (photo ?? this.photo),
+    laboratory: laboratory,
+  );
+
+  @override
+  List<Object?> get props => [profile, photo?.length, photo?.hashCode, laboratory];
+}
+
+sealed class ProfileEvent extends Equatable {
+  const ProfileEvent();
+
+  @override
+  List<Object?> get props => [];
+}
+
+final class ProfileRequested extends ProfileEvent {
+  const ProfileRequested();
+}
+
+final class ProfileSaved extends ProfileEvent {
+  const ProfileSaved(this.data);
+
+  final PersonalData data;
+
+  @override
+  List<Object?> get props => [data];
+}
+
+final class ProfilePhotoPicked extends ProfileEvent {
+  const ProfilePhotoPicked(this.photo);
+
+  final ProfilePhoto photo;
+
+  @override
+  List<Object?> get props => [photo];
+}
+
+final class ProfilePhotoRemoved extends ProfileEvent {
+  const ProfilePhotoRemoved();
+}
+
+enum ProfileAction { save, photo, removePhoto }
+
+enum ProfileActionStatus { idle, submitting, success, failure }
+
+final class ProfileState extends Equatable {
+  const ProfileState({
+    this.remote = const RemoteState(),
+    this.actionStatus = ProfileActionStatus.idle,
+    this.lastAction,
+    this.actionFailure,
+  });
+
+  final RemoteState<ProfileData> remote;
+  final ProfileActionStatus actionStatus;
+  final ProfileAction? lastAction;
+  final Failure? actionFailure;
+
+  bool get submitting => actionStatus == ProfileActionStatus.submitting;
+
+  ProfileState copyWith({
+    RemoteState<ProfileData>? remote,
+    ProfileActionStatus? actionStatus,
+    ProfileAction? lastAction,
+    Failure? actionFailure,
+  }) => ProfileState(
+    remote: remote ?? this.remote,
+    actionStatus: actionStatus ?? this.actionStatus,
+    lastAction: lastAction ?? this.lastAction,
+    actionFailure: actionFailure,
+  );
+
+  @override
+  List<Object?> get props => [remote, actionStatus, lastAction, actionFailure];
+}
+
+/// Profile of the signed-in user (Profile context) with the laboratory.
+class ProfileBloc extends Bloc<ProfileEvent, ProfileState> {
+  ProfileBloc({
+    required ProfileFacadeService profileService,
+    required LaboratoryApi laboratoryApi,
+    required LaboratoryId? Function() laboratoryId,
+    required void Function(UserProfile profile) onProfileChanged,
+  }) : _profileService = profileService,
+       _laboratoryApi = laboratoryApi,
+       _laboratoryId = laboratoryId,
+       _onProfileChanged = onProfileChanged,
+       super(const ProfileState()) {
+    on<ProfileRequested>(_onRequested);
+    on<ProfileSaved>((e, emit) => _run(emit, ProfileAction.save, (data) async {
+      return data.copyWith(profile: await _profileService.updateMyProfile(e.data));
+    }));
+    on<ProfilePhotoPicked>((e, emit) => _run(emit, ProfileAction.photo, (data) async {
+      await _profileService.uploadMyPhoto(e.photo);
+      return data.copyWith(profile: await _profileService.getMyProfile(), photo: e.photo.bytes);
+    }));
+    on<ProfilePhotoRemoved>((e, emit) => _run(emit, ProfileAction.removePhoto, (data) async {
+      await _profileService.removeMyPhoto();
+      return data.copyWith(profile: await _profileService.getMyProfile(), clearPhoto: true);
+    }));
+  }
+
+  final ProfileFacadeService _profileService;
+  final LaboratoryApi _laboratoryApi;
+  final LaboratoryId? Function() _laboratoryId;
+  final void Function(UserProfile profile) _onProfileChanged;
+
+  Future<void> _onRequested(ProfileRequested event, Emitter<ProfileState> emit) async {
+    emit(state.copyWith(remote: state.remote.loading()));
+    try {
+      final profile = await _profileService.getMyProfile();
+      final photo = profile.hasPhoto ? await _optional(_profileService.getMyPhoto) : null;
+      final labId = _laboratoryId();
+      final laboratory = labId == null ? null : await _optional(() => _laboratoryApi.getLaboratory(labId));
+      _onProfileChanged(profile);
+      emit(state.copyWith(remote: state.remote.success(ProfileData(profile: profile, photo: photo, laboratory: laboratory))));
+    } catch (error) {
+      emit(state.copyWith(remote: state.remote.failed(Failure.from(error))));
+    }
+  }
+
+  /// The photo and the laboratory are secondary: the profile is shown anyway.
+  Future<T?> _optional<T>(Future<T?> Function() read) async {
+    try {
+      return await read();
+    } on UnauthorizedFailure {
+      rethrow;
+    } on Failure {
+      return null;
+    }
+  }
+
+  Future<void> _run(
+    Emitter<ProfileState> emit,
+    ProfileAction action,
+    Future<ProfileData> Function(ProfileData current) command,
+  ) async {
+    final current = state.remote.data;
+    if (state.submitting || current == null) return;
+    emit(state.copyWith(actionStatus: ProfileActionStatus.submitting, lastAction: action));
+    try {
+      final updated = await command(current);
+      _onProfileChanged(updated.profile);
+      emit(state.copyWith(remote: state.remote.success(updated), actionStatus: ProfileActionStatus.success));
+    } catch (error) {
+      emit(state.copyWith(actionStatus: ProfileActionStatus.failure, actionFailure: Failure.from(error)));
+    }
+  }
+}
