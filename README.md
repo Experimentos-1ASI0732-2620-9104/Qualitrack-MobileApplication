@@ -15,12 +15,13 @@ equipment, KPIs and billing.
 ## Features
 
 - **Secure sign-in**: JWT stored in Keychain/Keystore, session restore, expiry handling and logout.
-- **Command Center**: real operational metrics only.
+- **Command Center**: real operational metrics only, as a list or as a dashboard, with the most urgent alerts first.
 - **Telemetry dashboard**: live polling (15 s), charts and anomalies, plus the raw telemetry log.
 - **Compliance alerts**: filters, detail, **acknowledge** and **resolve** (QA Manager/Admin).
 - **Production batches**: raw materials used, traceability, **release/reject** of existing batches (QA Manager/Admin).
 - **Inventory**: usable/physical/minimum stock, receipts and movements.
-- **Equipment**: telemetry status, BPM limits, maintenance, trends and audit log.
+- **Equipment**: telemetry status, BPM limits, maintenance, trends and audit log; Edge Gateways are named and filtered apart.
+- **Profile**: personal data and photo of the signed-in user.
 - **Catalog, KPIs and billing**: product catalog, KPI dashboard and report history, billing summary.
 - **Multilingual support**: English and Spanish.
 - **Accessible and responsive**: badges with icon and text, layouts from 360×640.
@@ -34,21 +35,23 @@ equipment, KPIs and billing.
 - `dio` as the single HTTP client.
 - `flutter_secure_storage` for the session token.
 - `fl_chart` for telemetry and KPI charts.
-- `equatable` and `intl`.
+- `equatable`, `intl` and `image_picker`.
 - Testing with `flutter_test`, `bloc_test` and `mocktail`.
 - GitHub Actions and Firebase App Distribution for delivery.
 
 ## Architecture
 
 Domain-Driven Design, one module per Bounded Context, each with
-`domain / application / infrastructure / presentation` layers.
+`domain / application / infrastructure / presentation` layers and an `api`
+entry point, the only door the other contexts use.
 
 ```
 lib/
 ├── main.dart
-├── app/            # composition root: theme, router, DI, MaterialApp
-├── shared/         # failures, ApiClient, secure storage, l10n, widgets
+├── app/            # composition root: router, DI, MaterialApp
+├── common/         # failures, ApiClient, secure storage, i18n, theme, widgets
 ├── iam/            # Identity & Access Management
+├── profile/        # Profile of the signed-in user
 ├── laboratory/     # Laboratory Management (lab, products)
 ├── equipment/      # Equipment Management
 ├── tracking/       # Tracking & Telemetry
@@ -101,8 +104,8 @@ hardcoded default. If it is missing, the app shows a configuration screen.
 | Physical device (same Wi-Fi) | `flutter run --dart-define=API_BASE_URL=http://<your-PC-IP>:8080` |
 | Deployed backend | `flutter run --dart-define=API_BASE_URL=https://<host>` |
 
-For plain `http://` on Android 9+, allow cleartext traffic for development
-(`android:usesCleartextTraffic="true"` in the debug manifest) or use HTTPS.
+The debug and profile builds allow cleartext traffic, so a local backend over
+plain `http://` works in development; release builds use HTTPS only.
 
 ## Tests and quality
 
@@ -118,8 +121,8 @@ On Windows you can run everything at once and keep a log in `tool/logs/verify.lo
 powershell -ExecutionPolicy Bypass -File tool\verify.ps1
 ```
 
-Localized strings are edited in `l10n/strings.tsv`, then regenerated with
-`python tool/generate_l10n.py`. Do not edit `app_localizations.dart` by hand.
+Localized strings are edited in `i18n/strings.tsv`, then regenerated with
+`dart run tool/generate_i18n.dart`. Do not edit `app_localizations.dart` by hand.
 
 ## Build APK
 
