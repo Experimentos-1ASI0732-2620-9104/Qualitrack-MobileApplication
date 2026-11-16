@@ -1,0 +1,48 @@
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../common/domain/failure.dart';
+import '../../application/iam_facade_service.dart';
+
+final class PasswordChangeSubmitted extends Equatable {
+  const PasswordChangeSubmitted({required this.currentPassword, required this.newPassword});
+
+  final String currentPassword;
+  final String newPassword;
+
+  @override
+  List<Object?> get props => [currentPassword, newPassword];
+}
+
+enum ChangePasswordStatus { idle, submitting, success, failure }
+
+final class ChangePasswordState extends Equatable {
+  const ChangePasswordState({this.status = ChangePasswordStatus.idle, this.failure});
+
+  final ChangePasswordStatus status;
+  final Failure? failure;
+
+  @override
+  List<Object?> get props => [status, failure];
+}
+
+class ChangePasswordBloc extends Bloc<PasswordChangeSubmitted, ChangePasswordState> {
+  ChangePasswordBloc({required IamFacadeService iamService})
+    : _iamService = iamService,
+      super(const ChangePasswordState()) {
+    on<PasswordChangeSubmitted>(_onSubmitted);
+  }
+
+  final IamFacadeService _iamService;
+
+  Future<void> _onSubmitted(PasswordChangeSubmitted event, Emitter<ChangePasswordState> emit) async {
+    if (state.status == ChangePasswordStatus.submitting) return;
+    emit(const ChangePasswordState(status: ChangePasswordStatus.submitting));
+    try {
+      await _iamService.changePassword(currentPassword: event.currentPassword, newPassword: event.newPassword);
+      emit(const ChangePasswordState(status: ChangePasswordStatus.success));
+    } catch (error) {
+      emit(ChangePasswordState(status: ChangePasswordStatus.failure, failure: Failure.from(error)));
+    }
+  }
+}
