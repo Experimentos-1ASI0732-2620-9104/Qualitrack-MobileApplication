@@ -2,60 +2,77 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../batch/presentation/bloc/batch_detail_bloc.dart';
-import '../../batch/presentation/bloc/batches_bloc.dart';
-import '../../batch/presentation/pages/batch_detail_page.dart';
-import '../../batch/presentation/pages/batches_page.dart';
+import '../../batch/presentation/batch_detail/batch_detail_screen.dart';
+import '../../batch/presentation/batch_detail/bloc/bloc.dart';
+import '../../batch/presentation/batch_list/batch_list_screen.dart';
+import '../../batch/presentation/batch_list/bloc/bloc.dart';
 import '../../command_center/presentation/bloc/command_center_bloc.dart';
-import '../../command_center/presentation/pages/command_center_page.dart';
+import '../../command_center/presentation/screens/command_center_screen.dart';
+import '../../iam/presentation/widgets/role_labels.dart';
+import 'command_center_views.dart';
 import '../../compliance/presentation/bloc/alert_detail_bloc.dart';
 import '../../compliance/presentation/bloc/alerts_bloc.dart';
-import '../../compliance/presentation/pages/alert_detail_page.dart';
-import '../../compliance/presentation/pages/alerts_page.dart';
+import '../../compliance/presentation/bloc/notification_preferences_bloc.dart';
+import '../../compliance/presentation/bloc/notifications_bloc.dart';
+import '../../compliance/presentation/bloc/unread_notifications_controller.dart';
+import '../../compliance/presentation/screens/alert_detail_screen.dart';
+import '../../compliance/presentation/screens/alerts_screen.dart';
+import '../../compliance/presentation/screens/notification_preferences_screen.dart';
+import '../../compliance/presentation/screens/notifications_screen.dart';
 import '../../equipment/presentation/bloc/equipment_detail_bloc.dart';
 import '../../equipment/presentation/bloc/equipment_list_bloc.dart';
-import '../../equipment/presentation/pages/equipment_detail_page.dart';
-import '../../equipment/presentation/pages/equipment_list_page.dart';
+import '../../equipment/presentation/screens/equipment_detail_screen.dart';
+import '../../equipment/presentation/screens/equipment_list_screen.dart';
 import '../../iam/application/session_controller.dart';
-import '../../iam/presentation/bloc/profile_bloc.dart';
+import '../../iam/presentation/bloc/change_password_bloc.dart';
 import '../../iam/presentation/bloc/sign_in_bloc.dart';
-import '../../iam/presentation/pages/profile_page.dart';
-import '../../iam/presentation/pages/setup_required_page.dart';
-import '../../iam/presentation/pages/sign_in_page.dart';
-import '../../iam/presentation/pages/splash_page.dart';
+import '../../iam/presentation/screens/change_password_screen.dart';
+import '../../iam/presentation/screens/setup_required_screen.dart';
+import '../../iam/presentation/screens/sign_in_screen.dart';
+import '../../iam/presentation/screens/splash_screen.dart';
 import '../../inventory/presentation/bloc/inventory_bloc.dart';
 import '../../inventory/presentation/bloc/material_detail_bloc.dart';
-import '../../inventory/presentation/pages/inventory_page.dart';
-import '../../inventory/presentation/pages/material_detail_page.dart';
+import '../../inventory/presentation/screens/inventory_screen.dart';
+import '../../inventory/presentation/screens/material_detail_screen.dart';
 import '../../laboratory/presentation/bloc/products_bloc.dart';
-import '../../laboratory/presentation/pages/products_page.dart';
+import '../../laboratory/presentation/screens/products_screen.dart';
+import '../../profile/presentation/bloc/current_profile_controller.dart';
+import '../../profile/presentation/bloc/profile_bloc.dart';
+import '../../profile/presentation/screens/profile_screen.dart';
 import '../../reporting/presentation/bloc/reports_bloc.dart';
-import '../../reporting/presentation/pages/reports_page.dart';
-import '../../shared/presentation/l10n/app_localizations.dart';
-import '../../shared/presentation/widgets/state_views.dart';
+import '../../reporting/presentation/screens/reports_screen.dart';
+import '../../common/presentation/i18n/app_localizations.dart';
+import '../../common/presentation/orientation.dart';
+import '../../common/presentation/widgets/state_views.dart';
 import '../../subscription/presentation/bloc/billing_bloc.dart';
-import '../../subscription/presentation/pages/billing_page.dart';
+import '../../subscription/presentation/screens/billing_screen.dart';
 import '../../tracking/presentation/bloc/telemetry_dashboard_bloc.dart';
 import '../../tracking/presentation/bloc/telemetry_history_bloc.dart';
-import '../../tracking/presentation/pages/telemetry_dashboard_page.dart';
-import '../../tracking/presentation/pages/telemetry_history_page.dart';
+import '../../tracking/presentation/screens/telemetry_dashboard_screen.dart';
+import '../../tracking/presentation/screens/telemetry_history_screen.dart';
 import '../dependency_injection/injection.dart';
+import '../home_layout_preference.dart';
 import 'app_routes.dart';
 import 'main_shell.dart';
-import 'more_page.dart';
+import 'more_screen.dart';
 
 /// Pure redirect rule, extracted for unit testing.
-String? resolveRedirect(SessionStatus status, String location) {
+String? resolveRedirect(SessionStatus status, String location, {bool canManageQuality = false}) {
   final isPublic = AppRoutes.public.contains(location);
   switch (status) {
     case SessionStatus.unknown:
       return location == AppRoutes.splash ? null : AppRoutes.splash;
     case SessionStatus.unauthenticated:
       return location == AppRoutes.signIn ? null : AppRoutes.signIn;
+    case SessionStatus.passwordChangeRequired:
+      return location == AppRoutes.changePassword ? null : AppRoutes.changePassword;
     case SessionStatus.setupRequired:
       return location == AppRoutes.setupRequired ? null : AppRoutes.setupRequired;
     case SessionStatus.authenticated:
-      return isPublic ? AppRoutes.home : null;
+      if (isPublic) return AppRoutes.home;
+      // The subscription belongs to the quality manager, as in Web.
+      if (location == AppRoutes.billing && !canManageQuality) return AppRoutes.more;
+      return null;
   }
 }
 
@@ -64,147 +81,49 @@ int? _intParam(String? raw) {
   return value != null && value > 0 ? value : null;
 }
 
-Widget _invalidId(BuildContext context) =>
-    Scaffold(appBar: AppBar(), body: EmptyView(title: context.l10n.errorNotFound));
+Widget _invalidId(BuildContext context) => Scaffold(appBar: AppBar(), body: EmptyView(title: context.i18n.errorNotFound));
 
-GoRouter createRouter(SessionController session) {
+/// Lets the router listen to the Flutter-free [SessionController].
+class _SessionRefresh extends ChangeNotifier {
+  _SessionRefresh(SessionController session) {
+    session.addListener(notifyListeners);
+  }
+}
+
+GoRouter createRouter(
+  SessionController session, {
+  required UnreadNotificationsController notifications,
+  required CurrentProfileController currentProfile,
+}) {
+  int? currentUserId() => session.session?.userId;
   return GoRouter(
     initialLocation: AppRoutes.splash,
-    refreshListenable: session,
-    redirect: (context, state) => resolveRedirect(session.status, state.matchedLocation),
+    refreshListenable: _SessionRefresh(session),
+    redirect: (context, state) => resolveRedirect(
+      session.status,
+      state.matchedLocation,
+      canManageQuality: session.session?.canManageQuality ?? false,
+    ),
     routes: [
-      GoRoute(path: AppRoutes.splash, builder: (context, state) => const SplashPage()),
+      GoRoute(path: AppRoutes.splash, builder: (context, state) => const SplashScreen()),
       GoRoute(
         path: AppRoutes.signIn,
         builder: (context, state) => BlocProvider(
           create: (_) => sl<SignInBloc>(),
-          child: SignInPage(sessionExpired: session.sessionExpired),
+          child: SignInScreen(sessionExpired: session.sessionExpired),
         ),
       ),
+      GoRoute(path: AppRoutes.setupRequired, builder: (context, state) => SetupRequiredScreen(session: session)),
       GoRoute(
-        path: AppRoutes.setupRequired,
-        builder: (context, state) => SetupRequiredPage(session: session),
-      ),
-      // Secondary screens are pushed on the root navigator (above the shell).
-      GoRoute(
-        path: '/telemetry/history',
-        builder: (context, state) {
-          final id = _intParam(state.uri.queryParameters['equipmentId']);
-          return BlocProvider(
-            create: (_) =>
-                sl<TelemetryHistoryBloc>()..add(TelemetryHistoryStarted(equipmentId: id)),
-            child: const TelemetryHistoryPage(),
-          );
-        },
-      ),
-      GoRoute(
-        path: '/alerts/:id',
-        builder: (context, state) {
-          final id = _intParam(state.pathParameters['id']);
-          if (id == null) return _invalidId(context);
-          return BlocProvider(
-            create: (_) =>
-                sl<AlertDetailBloc>(param1: id)..add(const AlertDetailRequested()),
-            child: AlertDetailPage(canReview: session.session?.canReview ?? false),
-          );
-        },
-      ),
-      GoRoute(
-        path: '/batches/:id',
-        builder: (context, state) {
-          final id = _intParam(state.pathParameters['id']);
-          if (id == null) return _invalidId(context);
-          return BlocProvider(
-            create: (_) =>
-                sl<BatchDetailBloc>(param1: id)..add(const BatchDetailRequested()),
-            child: BatchDetailPage(canReview: session.session?.canReview ?? false),
-          );
-        },
-      ),
-      GoRoute(
-        path: AppRoutes.equipment,
+        path: AppRoutes.changePassword,
         builder: (context, state) => BlocProvider(
-          create: (_) => sl<EquipmentListBloc>()..add(const EquipmentListRequested()),
-          child: const EquipmentListPage(),
-        ),
-        routes: [
-          GoRoute(
-            path: ':id',
-            builder: (context, state) {
-              final id = _intParam(state.pathParameters['id']);
-              if (id == null) return _invalidId(context);
-              return BlocProvider(
-                create: (_) =>
-                    sl<EquipmentDetailBloc>(param1: id)..add(const EquipmentDetailRequested()),
-                child: const EquipmentDetailPage(),
-              );
-            },
-          ),
-        ],
-      ),
-      GoRoute(
-        path: AppRoutes.inventory,
-        builder: (context, state) => BlocProvider(
-          create: (_) => sl<InventoryBloc>()..add(const InventoryRequested()),
-          child: const InventoryPage(),
-        ),
-        routes: [
-          GoRoute(
-            path: ':id',
-            builder: (context, state) {
-              final id = _intParam(state.pathParameters['id']);
-              if (id == null) return _invalidId(context);
-              return BlocProvider(
-                create: (_) =>
-                    sl<MaterialDetailBloc>(param1: id)..add(const MaterialDetailRequested()),
-                child: const MaterialDetailPage(),
-              );
-            },
-          ),
-        ],
-      ),
-      GoRoute(
-        path: AppRoutes.products,
-        builder: (context, state) => BlocProvider(
-          create: (_) => sl<ProductsBloc>()..add(const ProductsRequested()),
-          child: const ProductsPage(),
-        ),
-        routes: [
-          GoRoute(
-            path: ':id',
-            builder: (context, state) {
-              final id = _intParam(state.pathParameters['id']);
-              if (id == null) return _invalidId(context);
-              return BlocProvider(
-                create: (_) => sl<ProductsBloc>()..add(const ProductsRequested()),
-                child: ProductDetailPage(productId: id),
-              );
-            },
-          ),
-        ],
-      ),
-      GoRoute(
-        path: AppRoutes.reports,
-        builder: (context, state) => BlocProvider(
-          create: (_) => sl<ReportsBloc>()..add(const ReportsRequested()),
-          child: const ReportsPage(),
+          create: (_) => sl<ChangePasswordBloc>(),
+          child: ChangePasswordScreen(forced: true, onChanged: session.passwordChanged, onSignOut: session.signOut),
         ),
       ),
-      GoRoute(
-        path: AppRoutes.billing,
-        builder: (context, state) => BlocProvider(
-          create: (_) => sl<BillingBloc>()..add(const BillingRequested()),
-          child: const BillingPage(),
-        ),
-      ),
-      GoRoute(
-        path: AppRoutes.profile,
-        builder: (context, state) => BlocProvider(
-          create: (_) => sl<ProfileBloc>()..add(const ProfileRequested()),
-          child: ProfilePage(onSignOut: session.signOut),
-        ),
-      ),
-      GoRoute(path: AppRoutes.about, builder: (context, state) => const AboutPage()),
+      // Every signed-in screen lives inside a shell branch, so the bottom
+      // navigation stays visible on detail and secondary screens too. Each
+      // secondary screen belongs to the tab it is reached from most often.
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => MainShell(shell: shell),
         branches: [
@@ -212,39 +131,82 @@ GoRouter createRouter(SessionController session) {
             routes: [
               GoRoute(
                 path: AppRoutes.home,
-                builder: (context, state) => BlocProvider(
-                  create: (_) => sl<CommandCenterBloc>()..add(const CommandCenterRequested()),
-                  child: session.session == null
-                      ? const SplashPage()
-                      : CommandCenterPage(session: session.session!),
-                ),
+                builder: (context, state) {
+                  final current = session.session;
+                  if (current == null) return const SplashScreen();
+                  return BlocProvider(
+                    create: (_) => sl<CommandCenterBloc>()..add(const CommandCenterRequested()),
+                    child: CommandCenterScreen(
+                      session: current,
+                      layout: sl<HomeLayoutPreference>(),
+                      views: commandCenterViews(
+                        session: current,
+                        currentProfile: currentProfile,
+                        notifications: notifications,
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: AppRoutes.telemetry,
-                builder: (context, state) {
-                  final id = _intParam(state.uri.queryParameters['equipmentId']);
-                  return BlocProvider(
-                    key: ValueKey('telemetry-$id'),
-                    create: (_) => sl<TelemetryDashboardBloc>()..add(TelemetryStarted(equipmentId: id)),
-                    child: const TelemetryDashboardPage(),
-                  );
-                },
-             ),
-            ],
-          ),
+          // Tabs by importance: Home, Alerts, Telemetry, Batches, More. Alerts
+          // come right after Home because they are what a QA user acts on first.
+          // Compliance alerts and their detail.
           StatefulShellBranch(
             routes: [
               GoRoute(
                 path: AppRoutes.alerts,
                 builder: (context, state) => BlocProvider(
                   create: (_) => sl<AlertsBloc>()..add(const AlertsRequested()),
-                  child: const AlertsPage(),
+                  child: const AlertsScreen(),
                 ),
-             ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = _intParam(state.pathParameters['id']);
+                      if (id == null) return _invalidId(context);
+                      return BlocProvider(
+                        create: (_) => sl<AlertDetailBloc>(param1: id)..add(const AlertDetailRequested()),
+                        child: AlertDetailScreen(
+                          canAttend: session.session?.canAttendAlerts ?? false,
+                          currentUserId: currentUserId(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          // Telemetry of the environments and containers.
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.telemetry,
+                builder: (context, state) {
+                  final id = _intParam(state.uri.queryParameters['deviceId']);
+                  return BlocProvider(
+                    key: ValueKey('telemetry-$id'),
+                    create: (_) => sl<TelemetryDashboardBloc>()..add(TelemetryStarted(deviceId: id)),
+                    child: const TelemetryDashboardScreen(),
+                  );
+                },
+                routes: [
+                  GoRoute(
+                    path: 'history',
+                    builder: (context, state) {
+                      final id = _intParam(state.uri.queryParameters['deviceId']);
+                      return BlocProvider(
+                        create: (_) => sl<TelemetryHistoryBloc>()..add(TelemetryHistoryStarted(deviceId: id)),
+                        // The only screen that may turn to landscape: its chart.
+                        child: const LandscapeAllowed(child: TelemetryHistoryScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ],
           ),
           StatefulShellBranch(
@@ -252,19 +214,150 @@ GoRouter createRouter(SessionController session) {
               GoRoute(
                 path: AppRoutes.batches,
                 builder: (context, state) => BlocProvider(
-                  create: (_) => sl<BatchesBloc>()..add(const BatchesRequested()),
-                  child: const BatchesPage(),
+                  create: (_) => sl<BatchListBloc>()..add(const BatchListRequested()),
+                  child: const BatchListScreen(),
                 ),
-             ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = _intParam(state.pathParameters['id']);
+                      if (id == null) return _invalidId(context);
+                      return BlocProvider(
+                        create: (_) => sl<BatchDetailBloc>(param1: id)..add(const BatchDetailRequested()),
+                        child: BatchDetailScreen(
+                          canReview: session.session?.canManageQuality ?? false,
+                          currentUserId: currentUserId(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(
                 path: AppRoutes.more,
-                builder: (context, state) => session.session == null
-                    ? const SplashPage()
-                    : MorePage(session: session.session!, onSignOut: session.signOut),
+                builder: (context, state) {
+                  final current = session.session;
+                  if (current == null) return const SplashScreen();
+                  return MoreScreen(session: current, currentProfile: currentProfile, onSignOut: session.signOut);
+                },
+              ),
+              // Equipment: catalog and detail; the live state of the IoT devices is in Telemetry.
+              GoRoute(
+                path: AppRoutes.equipment,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<EquipmentListBloc>()..add(const EquipmentListRequested()),
+                  child: const EquipmentListScreen(),
+                ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = _intParam(state.pathParameters['id']);
+                      if (id == null) return _invalidId(context);
+                      return BlocProvider(
+                        create: (_) => sl<EquipmentDetailBloc>(param1: id)..add(const EquipmentDetailRequested()),
+                        child: EquipmentDetailScreen(currentUserId: currentUserId()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: AppRoutes.inventory,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<InventoryBloc>()..add(const InventoryRequested()),
+                  child: const InventoryScreen(),
+                ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = _intParam(state.pathParameters['id']);
+                      if (id == null) return _invalidId(context);
+                      final environmentId = _intParam(state.uri.queryParameters['environmentId']);
+                      return BlocProvider(
+                        create: (_) =>
+                            sl<MaterialDetailBloc>(param1: id, param2: environmentId)..add(const MaterialDetailRequested()),
+                        child: const MaterialDetailScreen(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: AppRoutes.products,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<ProductsBloc>()..add(const ProductsRequested()),
+                  child: const ProductsScreen(),
+                ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) {
+                      final id = _intParam(state.pathParameters['id']);
+                      if (id == null) return _invalidId(context);
+                      return BlocProvider(
+                        create: (_) => sl<ProductsBloc>()..add(const ProductsRequested()),
+                        child: ProductDetailScreen(productId: id),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: AppRoutes.reports,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<ReportsBloc>()..add(const ReportsRequested()),
+                  child: const ReportsScreen(),
+                ),
+              ),
+              GoRoute(
+                path: AppRoutes.billing,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<BillingBloc>()..add(const BillingRequested()),
+                  child: const BillingScreen(),
+                ),
+              ),
+              GoRoute(
+                path: AppRoutes.profile,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<ProfileBloc>()..add(const ProfileRequested()),
+                  child: ProfileScreen(onSignOut: session.signOut, roleLabel: (role, i18n) => role.label(i18n)),
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'password',
+                    builder: (context, state) => BlocProvider(
+                      create: (_) => sl<ChangePasswordBloc>(),
+                      child: ChangePasswordScreen(
+                        forced: false,
+                        onChanged: () async {
+                          if (context.canPop()) context.pop();
+                        },
+                      ),
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'notifications',
+                    builder: (context, state) => BlocProvider(
+                      create: (_) => sl<NotificationPreferencesBloc>()..add(const NotificationPreferencesRequested()),
+                      child: const NotificationPreferencesScreen(),
+                    ),
+                  ),
+                ],
+              ),
+              GoRoute(path: AppRoutes.about, builder: (context, state) => const AboutScreen()),
+              GoRoute(
+                path: AppRoutes.notifications,
+                builder: (context, state) => BlocProvider(
+                  create: (_) => sl<NotificationsBloc>()..add(const NotificationsRequested()),
+                  child: const NotificationsScreen(),
+                ),
               ),
             ],
           ),
