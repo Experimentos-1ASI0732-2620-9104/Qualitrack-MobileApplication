@@ -1,27 +1,24 @@
-import 'package:flutter/foundation.dart';
+import '../../common/domain/failure.dart';
+import '../../common/domain/value_objects.dart';
+import '../domain/entities/onboarding_step.dart';
+import '../domain/entities/user_session.dart';
+import 'iam_facade_service.dart';
 
-import '../../shared/domain/failure.dart';
-import '../../shared/domain/value_objects.dart';
-import '../domain/onboarding_state.dart';
-import '../domain/user_session.dart';
-import 'iam_use_cases.dart';
+enum SessionStatus { unknown, unauthenticated, passwordChangeRequired, setupRequired, authenticated }
 
-enum SessionStatus { unknown, unauthenticated, setupRequired, authenticated }
+/// Application-wide session state. The router refreshes on every change, so
+/// each status change re-evaluates route guards. It is plain Dart: `app/`
+/// adapts the listeners to the router.
+class SessionController {
+  SessionController({required IamFacadeService iamService}) : _iamService = iamService;
 
-/// Application-wide session state. It is the `refreshListenable` of the
-/// router, so every status change re-evaluates route guards.
-class SessionController extends ChangeNotifier {
-  SessionController({
-    required RestoreSession restoreSession,
-    required SignOut signOut,
-    required CheckOnboarding checkOnboarding,
-  }) : _restoreSession = restoreSession,
-       _signOut = signOut,
-       _checkOnboarding = checkOnboarding;
+  final IamFacadeService _iamService;
 
-  final RestoreSession _restoreSession;
-  final SignOut _signOut;
-  final CheckOnboarding _checkOnboarding;
+  final _listeners = <void Function()>[];
+
+  void addListener(void Function() listener) => _listeners.add(listener);
+
+  void removeListener(void Function() listener) => _listeners.remove(listener);
 
   SessionStatus _status = SessionStatus.unknown;
   UserSession? _session;
@@ -47,7 +44,7 @@ class SessionController extends ChangeNotifier {
 
   Future<void> restore() async {
     try {
-      final session = await _restoreSession();
+      final session = await _iamService.restoreSession();
       if (session == null) {
         _set(SessionStatus.unauthenticated, null);
         return;
@@ -70,8 +67,17 @@ class SessionController extends ChangeNotifier {
     await _evaluate(session);
   }
 
+  /// Called once the temporary password was replaced.
+  Future<void> passwordChanged() async {
+    final session = _session;
+    if (session == null) return;
+    final updated = session.withPasswordChanged();
+    await _iamService.rememberSession(updated);
+    await _evaluate(updated);
+  }
+
   Future<void> signOut() async {
-    await _signOut();
+    await _iamService.signOut();
     _expired = false;
     _pendingStep = null;
     _set(SessionStatus.unauthenticated, null);
@@ -80,7 +86,7 @@ class SessionController extends ChangeNotifier {
   /// Called by the HTTP layer on 401. Idempotent to avoid redirect loops.
   Future<void> expire() async {
     if (_session == null) return;
-    await _signOut();
+    await _iamService.signOut();
     _expired = true;
     _pendingStep = null;
     _set(SessionStatus.unauthenticated, null);
@@ -90,16 +96,14 @@ class SessionController extends ChangeNotifier {
 
   Future<void> _evaluate(UserSession session) async {
     _session = session;
-    if (!session.hasLaboratory) {
-      _pendingStep = OnboardingStep.laboratory;
-      _set(SessionStatus.setupRequired, session);
-      return;
-    }
     try {
-      final onboarding = await _checkOnboarding();
+      final onboarding = await _iamService.checkOnboarding();
       if (onboarding.isReady) {
         _pendingStep = null;
         _set(SessionStatus.authenticated, session);
+      } else if (onboarding.requiresPasswordChange) {
+        _pendingStep = onboarding.nextStep;
+        _set(SessionStatus.passwordChangeRequired, session);
       } else {
         _pendingStep = onboarding.nextStep;
         _set(SessionStatus.setupRequired, session);
@@ -109,14 +113,24 @@ class SessionController extends ChangeNotifier {
     } on Failure {
       // Network or server problem: keep the valid session; screens will show
       // their own error states and the backend still guards every request.
-      _pendingStep = null;
-      _set(SessionStatus.authenticated, session);
+      if (session.passwordChangeRequired) {
+        _pendingStep = OnboardingStep.passwordChange;
+        _set(SessionStatus.passwordChangeRequired, session);
+      } else if (!session.hasLaboratory) {
+        _pendingStep = OnboardingStep.laboratory;
+        _set(SessionStatus.setupRequired, session);
+      } else {
+        _pendingStep = null;
+        _set(SessionStatus.authenticated, session);
+      }
     }
   }
 
   void _set(SessionStatus status, UserSession? session) {
     _status = status;
     _session = session;
-    notifyListeners();
+    for (final listener in List.of(_listeners)) {
+      listener();
+    }
   }
 }
