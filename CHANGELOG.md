@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-16
+
+### Added
+- Profile (`profile`): the signed-in user sees their personal data, changes the photo from the avatar and confirms signing out.
+- Command Center: the Home puts the most urgent alerts first, shows each active alert against its normal range, and can be seen as a list or as a dashboard; the choice is remembered.
+- Equipment: the list is filtered from a menu with a summary card, and Edge Gateways are named, filtered and shown without BPM limits.
+- Inventory: each material shows its usable stock as a bar against the minimum, with lots, movements and usages in tabs.
+- Production batches: the detail summarizes the batch cycle, shows its history, and release and rejection are decided from a fixed bottom bar.
+- Telemetry: the chart shades the normal range, the window is chosen among 15 minutes, 1, 6 and 24 hours, every device stays in sight and a help sheet explains the readings.
+- Compliance alerts: each alert shows the limit next to its value, the lists say how current they are, and "mark all as read" can be undone before it reaches the server.
+- Reports: the reports are split into tabs with their own lists of measurements, deviations and generated reports, and a period filter.
+- Rubik typeface and the theme of the QualiTrack style guide.
+- Architecture tests that enforce the DDD layer, bounded context and style guide rules. The test suite grows from 98 to 248 tests.
+
+### Changed
+- Every bounded context is restructured in `domain` (entities, interface and logic), `application` (a facade service), `infrastructure` (data providers, models and a single repository) and `presentation`, and talks to the others only through its `api` entry point.
+- The `shared` folder is now `common`, and the localization directory `l10n` is now `i18n`; the strings are generated with `dart run tool/generate_i18n.dart` instead of the Python script.
+- The Alerts tab comes right after Home, and the More tab opens on its menu.
+- Backend codes (statuses, metrics, roles and types) are shown translated, and counts use the singular when they are 1.
+- Lists and details share one layout, with the title in the app bar, detail rows and pull-to-refresh.
+- The live telemetry reads the last 24 hours when it opens and then only the new readings on every 15 second poll (it asked for the last hour since 1.0.3).
+- The Android app is labeled "QualiTrack", and the debug and profile builds allow a local backend over plain HTTP.
+- App version set to `1.1.0+6`.
+
+### Removed
+- `tool/generate_l10n.py`, replaced by `tool/generate_i18n.dart`.
+
 ## [1.0.4] - 2026-10-10
 
 ### Changed

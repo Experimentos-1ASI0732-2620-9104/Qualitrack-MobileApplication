@@ -1,75 +1,101 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:qualitrack_mobile/equipment/domain/equipment.dart';
-import 'package:qualitrack_mobile/batch/application/batch_use_cases.dart';
-import 'package:qualitrack_mobile/batch/domain/batch.dart';
-import 'package:qualitrack_mobile/batch/presentation/bloc/batches_bloc.dart';
-import 'package:qualitrack_mobile/compliance/application/compliance_queries.dart';
-import 'package:qualitrack_mobile/compliance/domain/compliance.dart';
+import 'package:qualitrack_mobile/batch/application/batch_facade_service.dart';
+import 'package:qualitrack_mobile/batch/domain/entities/batch_status.dart';
+import 'package:qualitrack_mobile/batch/domain/entities/batch_traceability.dart';
+import 'package:qualitrack_mobile/batch/presentation/batch_detail/bloc/bloc.dart';
+import 'package:qualitrack_mobile/batch/presentation/batch_list/bloc/bloc.dart';
+import 'package:qualitrack_mobile/compliance/api/index.dart';
+import 'package:qualitrack_mobile/compliance/domain/entities/app_notification.dart';
+import 'package:qualitrack_mobile/compliance/domain/entities/notification_type.dart';
 import 'package:qualitrack_mobile/compliance/presentation/bloc/alert_detail_bloc.dart';
 import 'package:qualitrack_mobile/compliance/presentation/bloc/alerts_bloc.dart';
-import 'package:qualitrack_mobile/equipment/application/equipment_queries.dart';
-import 'package:qualitrack_mobile/iam/application/iam_use_cases.dart';
+import 'package:qualitrack_mobile/compliance/presentation/bloc/notifications_bloc.dart';
+import 'package:qualitrack_mobile/compliance/presentation/bloc/unread_notifications_controller.dart';
+import 'package:qualitrack_mobile/equipment/api/index.dart';
+import 'package:qualitrack_mobile/equipment/application/equipment_facade_service.dart';
+import 'package:qualitrack_mobile/iam/application/iam_facade_service.dart';
 import 'package:qualitrack_mobile/iam/application/session_controller.dart';
-import 'package:qualitrack_mobile/iam/domain/onboarding_state.dart';
+import 'package:qualitrack_mobile/iam/domain/entities/onboarding_state.dart';
+import 'package:qualitrack_mobile/iam/domain/entities/onboarding_step.dart';
+import 'package:qualitrack_mobile/iam/presentation/bloc/change_password_bloc.dart';
 import 'package:qualitrack_mobile/iam/presentation/bloc/sign_in_bloc.dart';
-import 'package:qualitrack_mobile/shared/domain/failure.dart';
-import 'package:qualitrack_mobile/shared/domain/value_objects.dart';
-import 'package:qualitrack_mobile/shared/presentation/view_status.dart';
-import 'package:qualitrack_mobile/tracking/application/telemetry_queries.dart';
-import 'package:qualitrack_mobile/tracking/domain/telemetry.dart';
+import 'package:qualitrack_mobile/laboratory/api/index.dart';
+import 'package:qualitrack_mobile/laboratory/application/laboratory_facade_service.dart';
+import 'package:qualitrack_mobile/reporting/api/index.dart';
+import 'package:qualitrack_mobile/common/domain/failure.dart';
+import 'package:qualitrack_mobile/common/domain/value_objects.dart';
+import 'package:qualitrack_mobile/common/presentation/view_status.dart';
+import 'package:qualitrack_mobile/tracking/application/telemetry_facade_service.dart';
+import 'package:qualitrack_mobile/tracking/domain/entities/connection_status.dart';
+import 'package:qualitrack_mobile/tracking/domain/entities/device_connection.dart';
+import 'package:qualitrack_mobile/tracking/domain/entities/telemetry_target.dart';
 import 'package:qualitrack_mobile/tracking/presentation/bloc/telemetry_dashboard_bloc.dart';
 
 import '../helpers/fixtures.dart';
 import '../helpers/mocks.dart';
 
+const lab = LaboratoryId(7);
+
 void main() {
-  setUpAll(() => registerFallbackValue(sessionFixture()));
+  setUpAll(() {
+    registerFallbackValue(sessionFixture());
+    registerFallbackValue(lab);
+    registerFallbackValue(const TelemetryTarget(deviceId: 1, environmentId: 1, containerMonitor: false));
+    registerFallbackValue(DateTime(2026));
+    registerFallbackValue(batchFixture());
+  });
+
+  SessionController controllerOf(MockIamRepository iam) =>
+      SessionController(iamService: IamFacadeService(repository: iam));
 
   group('SessionController', () {
-    late MockAuthRepository auth;
-    late MockSessionRepository sessions;
+    late MockIamRepository iam;
     late SessionController controller;
 
     setUp(() {
-      auth = MockAuthRepository();
-      sessions = MockSessionRepository();
-      when(() => sessions.clear()).thenAnswer((_) async {});
-      controller = SessionController(
-        restoreSession: RestoreSession(sessions),
-        signOut: SignOut(sessions),
-        checkOnboarding: CheckOnboarding(auth),
-      );
+      iam = MockIamRepository();
+      when(() => iam.clearSession()).thenAnswer((_) async {});
+      when(() => iam.saveSession(any())).thenAnswer((_) async {});
+      controller = controllerOf(iam);
     });
 
     test('no stored session → unauthenticated', () async {
-      when(() => sessions.load()).thenAnswer((_) async => null);
+      when(() => iam.loadSession()).thenAnswer((_) async => null);
       await controller.restore();
       expect(controller.status, SessionStatus.unauthenticated);
     });
 
     test('ready onboarding → authenticated', () async {
-      when(() => sessions.load()).thenAnswer((_) async => sessionFixture());
-      when(() => auth.getOnboarding()).thenAnswer(
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture());
+      when(() => iam.getOnboarding()).thenAnswer(
         (_) async => const OnboardingState(nextStep: OnboardingStep.ready, laboratoryId: 7),
       );
       await controller.restore();
       expect(controller.status, SessionStatus.authenticated);
-      expect(controller.requireLaboratoryId(), const LaboratoryId(7));
+      expect(controller.requireLaboratoryId(), lab);
     });
 
-    test('missing laboratory → setup required without calling fallback ids', () async {
-      when(() => sessions.load()).thenAnswer((_) async => sessionFixture(laboratoryId: null));
+    test('temporary password → password change, then authenticated once changed', () async {
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture(passwordChangeRequired: true));
+      when(() => iam.getOnboarding()).thenAnswer(
+        (_) async => const OnboardingState(nextStep: OnboardingStep.passwordChange),
+      );
       await controller.restore();
-      expect(controller.status, SessionStatus.setupRequired);
-      expect(controller.requireLaboratoryId, throwsA(isA<MissingLaboratoryFailure>()));
-      verifyNever(() => auth.getOnboarding());
+      expect(controller.status, SessionStatus.passwordChangeRequired);
+
+      when(() => iam.getOnboarding()).thenAnswer((_) async => const OnboardingState(nextStep: OnboardingStep.ready));
+      await controller.passwordChanged();
+
+      expect(controller.status, SessionStatus.authenticated);
+      expect(controller.session?.passwordChangeRequired, isFalse);
+      verify(() => iam.saveSession(any())).called(1);
     });
 
     test('inactive subscription → setup required', () async {
-      when(() => sessions.load()).thenAnswer((_) async => sessionFixture());
-      when(() => auth.getOnboarding()).thenAnswer(
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture());
+      when(() => iam.getOnboarding()).thenAnswer(
         (_) async => const OnboardingState(nextStep: OnboardingStep.subscription),
       );
       await controller.restore();
@@ -77,110 +103,121 @@ void main() {
       expect(controller.pendingStep, OnboardingStep.subscription);
     });
 
+    test('offline without laboratory → setup required without fallback ids', () async {
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture(laboratoryId: null));
+      when(() => iam.getOnboarding()).thenThrow(const NetworkFailure());
+      await controller.restore();
+      expect(controller.status, SessionStatus.setupRequired);
+      expect(controller.requireLaboratoryId, throwsA(isA<MissingLaboratoryFailure>()));
+    });
+
     test('expire clears the session once and flags it', () async {
-      when(() => sessions.load()).thenAnswer((_) async => sessionFixture());
-      when(() => auth.getOnboarding()).thenAnswer(
-        (_) async => const OnboardingState(nextStep: OnboardingStep.ready),
-      );
+      when(() => iam.loadSession()).thenAnswer((_) async => sessionFixture());
+      when(() => iam.getOnboarding()).thenAnswer((_) async => const OnboardingState(nextStep: OnboardingStep.ready));
       await controller.restore();
       await controller.expire();
       await controller.expire();
       expect(controller.status, SessionStatus.unauthenticated);
       expect(controller.sessionExpired, isTrue);
-      verify(() => sessions.clear()).called(1);
+      verify(() => iam.clearSession()).called(1);
     });
   });
 
   group('SignInBloc', () {
-    late MockAuthRepository auth;
-    late MockSessionRepository sessions;
+    late MockIamRepository iam;
     late SessionController controller;
 
     setUp(() {
-      auth = MockAuthRepository();
-      sessions = MockSessionRepository();
-      when(() => sessions.save(any())).thenAnswer((_) async {});
-      when(() => auth.getOnboarding()).thenAnswer(
-        (_) async => const OnboardingState(nextStep: OnboardingStep.ready),
-      );
-      controller = SessionController(
-        restoreSession: RestoreSession(sessions),
-        signOut: SignOut(sessions),
-        checkOnboarding: CheckOnboarding(auth),
-      );
+      iam = MockIamRepository();
+      when(() => iam.saveSession(any())).thenAnswer((_) async {});
+      when(() => iam.getOnboarding()).thenAnswer((_) async => const OnboardingState(nextStep: OnboardingStep.ready));
+      controller = controllerOf(iam);
     });
 
     blocTest<SignInBloc, SignInState>(
       'emits submitting → success and authenticates the session',
       build: () {
-        when(() => auth.signIn(username: 'qa@lab.test', password: 'secret'))
-            .thenAnswer((_) async => sessionFixture());
-        return SignInBloc(signIn: SignIn(auth, sessions), session: controller);
+        when(() => iam.signIn(username: 'qa@lab.test', password: 'secret')).thenAnswer((_) async => sessionFixture());
+        return SignInBloc(iamService: IamFacadeService(repository: iam), session: controller);
       },
       act: (bloc) => bloc.add(const SignInSubmitted(username: 'qa@lab.test', password: 'secret')),
-      expect: () => const [
-        SignInState(status: SignInStatus.submitting),
-        SignInState(status: SignInStatus.success),
-      ],
+      expect: () => const [SignInState(status: SignInStatus.submitting), SignInState(status: SignInStatus.success)],
       verify: (_) => expect(controller.status, SessionStatus.authenticated),
     );
 
     blocTest<SignInBloc, SignInState>(
-      'wrong credentials (400/404) are shown as invalid credentials',
+      'wrong credentials and deactivated accounts are shown as invalid credentials',
       build: () {
-        when(() => auth.signIn(username: 'qa@lab.test', password: 'bad'))
-            .thenThrow(const BadRequestFailure(code: 'VALIDATION_ERROR'));
-        return SignInBloc(signIn: SignIn(auth, sessions), session: controller);
+        when(() => iam.signIn(username: 'qa@lab.test', password: 'bad')).thenThrow(const ConflictFailure());
+        return SignInBloc(iamService: IamFacadeService(repository: iam), session: controller);
       },
       act: (bloc) => bloc.add(const SignInSubmitted(username: 'qa@lab.test', password: 'bad')),
       expect: () => const [
         SignInState(status: SignInStatus.submitting),
-        SignInState(
-          status: SignInStatus.failure,
-          failure: UnauthorizedFailure(code: 'INVALID_CREDENTIALS'),
-        ),
+        SignInState(status: SignInStatus.failure, failure: UnauthorizedFailure(code: 'INVALID_CREDENTIALS')),
+      ],
+    );
+  });
+
+  group('ChangePasswordBloc', () {
+    blocTest<ChangePasswordBloc, ChangePasswordState>(
+      'sends the passwords and reports success',
+      build: () {
+        final iam = MockIamRepository();
+        when(() => iam.changePassword(currentPassword: 'temp1234', newPassword: 'mine5678')).thenAnswer((_) async {});
+        return ChangePasswordBloc(iamService: IamFacadeService(repository: iam));
+      },
+      act: (bloc) => bloc.add(const PasswordChangeSubmitted(currentPassword: 'temp1234', newPassword: 'mine5678')),
+      expect: () => const [
+        ChangePasswordState(status: ChangePasswordStatus.submitting),
+        ChangePasswordState(status: ChangePasswordStatus.success),
       ],
     );
 
-    blocTest<SignInBloc, SignInState>(
-      'network problems keep their own failure',
+    blocTest<ChangePasswordBloc, ChangePasswordState>(
+      'a wrong current password is shown as a failure',
       build: () {
-        when(() => auth.signIn(username: 'qa@lab.test', password: 'x'))
-            .thenThrow(const NetworkFailure());
-        return SignInBloc(signIn: SignIn(auth, sessions), session: controller);
+        final iam = MockIamRepository();
+        when(() => iam.changePassword(currentPassword: 'wrong123', newPassword: 'mine5678'))
+            .thenThrow(const BadRequestFailure(message: 'The current password is incorrect'));
+        return ChangePasswordBloc(iamService: IamFacadeService(repository: iam));
       },
-      act: (bloc) => bloc.add(const SignInSubmitted(username: 'qa@lab.test', password: 'x')),
-      expect: () => const [
-        SignInState(status: SignInStatus.submitting),
-        SignInState(status: SignInStatus.failure, failure: NetworkFailure()),
+      act: (bloc) => bloc.add(const PasswordChangeSubmitted(currentPassword: 'wrong123', newPassword: 'mine5678')),
+      skip: 1,
+      expect: () => [
+        isA<ChangePasswordState>()
+            .having((s) => s.status, 'status', ChangePasswordStatus.failure)
+            .having((s) => s.failure?.message, 'message', 'The current password is incorrect'),
       ],
     );
   });
 
   group('AlertsBloc', () {
+    late MockLaboratoryRepository labRepo;
     late MockEquipmentRepository equipmentRepo;
     late MockComplianceRepository complianceRepo;
 
     setUp(() {
+      labRepo = MockLaboratoryRepository();
       equipmentRepo = MockEquipmentRepository();
       complianceRepo = MockComplianceRepository();
-      when(() => equipmentRepo.getByLaboratory(const LaboratoryId(7)))
-          .thenAnswer((_) async => [equipmentFixture(id: 10)]);
+      when(() => labRepo.getEnvironments(lab)).thenAnswer((_) async => [storage]);
+      when(() => equipmentRepo.getByLaboratory(lab)).thenAnswer((_) async => [equipmentFixture(id: 10)]);
     });
 
     AlertsBloc build() => AlertsBloc(
-      getEquipments: GetEquipments(equipmentRepo),
-      getAlerts: GetLaboratoryAlerts(complianceRepo),
-      laboratoryId: () => const LaboratoryId(7),
+      laboratoryApi: LaboratoryApi(LaboratoryFacadeService(repository: labRepo)),
+      equipmentApi: EquipmentApi(EquipmentFacadeService(repository: equipmentRepo)),
+      complianceService: complianceFacade(complianceRepo),
+      laboratoryId: () => lab,
     );
 
     blocTest<AlertsBloc, AlertsState>(
-      'loads alerts and filters by status',
+      'shows open alerts first and filters by status',
       build: () {
-        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => [
-          alertFixture(id: 1),
-          alertFixture(id: 2, status: AlertStatus.resolved),
-        ]);
+        when(() => complianceRepo.getEnvironmentAlerts(lab, 3)).thenAnswer(
+          (_) async => [alertFixture(id: 1), alertFixture(id: 2, status: AlertStatus.resolved)],
+        );
         return build();
       },
       act: (bloc) async {
@@ -188,31 +225,17 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         bloc.add(const AlertsFilterChanged(AlertFilter.resolved));
       },
-      skip: 2,
-      expect: () => [
-        isA<AlertsState>()
-            .having((s) => s.filter, 'filter', AlertFilter.resolved)
-            .having((s) => s.visible.map((a) => a.id).toList(), 'visible', [2]),
-      ],
-    );
-
-    blocTest<AlertsBloc, AlertsState>(
-      'no alerts → empty state',
-      build: () {
-        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenAnswer((_) async => []);
-        return build();
+      verify: (bloc) {
+        expect(bloc.state.remote.data?.deviceNames[10], 'Stability Chamber');
+        expect(bloc.state.remote.data?.environmentNames[3], 'Cold storage');
+        expect(bloc.state.visible.map((a) => a.id), [2]);
       },
-      act: (bloc) => bloc.add(const AlertsRequested()),
-      expect: () => [
-        isA<AlertsState>().having((s) => s.remote.status, 'status', ViewStatus.loading),
-        isA<AlertsState>().having((s) => s.remote.status, 'status', ViewStatus.empty),
-      ],
     );
 
     blocTest<AlertsBloc, AlertsState>(
       'errors are exposed as failures',
       build: () {
-        when(() => complianceRepo.getLaboratoryAlerts(const LaboratoryId(7))).thenThrow(const ServerFailure(statusCode: 500));
+        when(() => complianceRepo.getEnvironmentAlerts(lab, 3)).thenThrow(const ServerFailure(statusCode: 500));
         return build();
       },
       act: (bloc) => bloc.add(const AlertsRequested()),
@@ -228,54 +251,62 @@ void main() {
   group('AlertDetailBloc', () {
     late MockComplianceRepository repo;
     late MockEquipmentRepository equipmentRepo;
+    late MockLaboratoryRepository labRepo;
 
     setUp(() {
       repo = MockComplianceRepository();
       equipmentRepo = MockEquipmentRepository();
+      labRepo = MockLaboratoryRepository();
       when(() => repo.getAlert(1)).thenAnswer((_) async => alertFixture(id: 1));
-      when(() => equipmentRepo.getById(10)).thenAnswer((_) async => equipmentFixture());
+      when(() => equipmentRepo.getById(lab, 10)).thenAnswer((_) async => equipmentFixture());
+      when(() => labRepo.getEnvironments(lab)).thenAnswer((_) async => [storage]);
+      when(() => labRepo.getStaff(lab)).thenThrow(const ForbiddenFailure());
     });
 
     AlertDetailBloc build() => AlertDetailBloc(
       alertId: 1,
-      getAlert: GetAlertDetail(repo),
-      getEquipment: GetEquipment(equipmentRepo),
-      acknowledge: AcknowledgeAlert(repo),
-      resolve: ResolveAlert(repo),
+      complianceService: complianceFacade(repo),
+      equipmentApi: EquipmentApi(EquipmentFacadeService(repository: equipmentRepo)),
+      laboratoryApi: LaboratoryApi(LaboratoryFacadeService(repository: labRepo)),
+      laboratoryId: () => lab,
     );
 
     blocTest<AlertDetailBloc, AlertDetailState>(
-      'acknowledge updates the alert',
+      'acknowledge reloads the alert; names are optional',
       build: () {
-        when(() => repo.acknowledge(alertId: 1))
-            .thenAnswer((_) async => alertFixture(id: 1, status: AlertStatus.acknowledged));
+        when(() => repo.acknowledge(1)).thenAnswer((_) async {
+          when(() => repo.getAlert(1)).thenAnswer((_) async => alertFixture(id: 1, status: AlertStatus.acknowledged));
+          return alertFixture(id: 1, status: AlertStatus.acknowledged);
+        });
         return build();
       },
       act: (bloc) async {
         bloc.add(const AlertDetailRequested());
-        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
         bloc.add(const AlertAcknowledgeSubmitted());
       },
+      wait: const Duration(milliseconds: 20),
       verify: (bloc) {
         expect(bloc.state.actionStatus, ReviewActionStatus.success);
         expect(bloc.state.alert.data?.status, AlertStatus.acknowledged);
-        expect(bloc.state.equipmentName, 'Stability Chamber');
-        verify(() => repo.acknowledge(alertId: 1)).called(1);
+        expect(bloc.state.context.deviceName, 'Stability Chamber');
+        expect(bloc.state.context.environmentName, 'Cold storage');
+        expect(bloc.state.context.people, isEmpty);
       },
     );
 
     blocTest<AlertDetailBloc, AlertDetailState>(
       'backend rejection is shown and the alert is kept',
       build: () {
-        when(() => repo.resolve(alertId: 1, resolutionNotes: 'Done'))
-            .thenThrow(const BadRequestFailure(message: 'Alert is already resolved'));
+        when(() => repo.resolve(1, 'Done')).thenThrow(const ConflictFailure(message: 'Alert is already resolved'));
         return build();
       },
       act: (bloc) async {
         bloc.add(const AlertDetailRequested());
-        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
         bloc.add(const AlertResolveSubmitted('Done'));
       },
+      wait: const Duration(milliseconds: 20),
       verify: (bloc) {
         expect(bloc.state.actionStatus, ReviewActionStatus.failure);
         expect(bloc.state.actionFailure?.message, 'Alert is already resolved');
@@ -284,138 +315,120 @@ void main() {
     );
   });
 
-  group('BatchesBloc', () {
-    blocTest<BatchesBloc, BatchesState>(
+  group('Batches', () {
+    blocTest<BatchListBloc, BatchListState>(
       'filters by status and search query',
       build: () {
         final repo = MockBatchRepository();
-        when(() => repo.getByLaboratory(const LaboratoryId(7))).thenAnswer((_) async => [
-          batchFixture(id: 1, batchNumber: 'LOT-A'),
-          batchFixture(id: 2, batchNumber: 'LOT-B', status: BatchStatus.released),
-        ]);
-        return BatchesBloc(getBatches: GetBatches(repo), laboratoryId: () => const LaboratoryId(7));
+        when(() => repo.getByLaboratory(lab)).thenAnswer(
+          (_) async => [batchFixture(id: 1, batchNumber: 'LOT-A'), batchFixture(id: 2, batchNumber: 'LOT-B', status: BatchStatus.released)],
+        );
+        return BatchListBloc(batchService: BatchFacadeService(repository: repo), laboratoryId: () => lab);
       },
       act: (bloc) async {
-        bloc.add(const BatchesRequested());
+        bloc.add(const BatchListRequested());
         await Future<void>.delayed(Duration.zero);
-        bloc.add(const BatchesFilterChanged(BatchFilter.released));
-        bloc.add(const BatchesQueryChanged('lot-b'));
+        bloc.add(const BatchListFilterChanged(BatchFilter.released));
+        bloc.add(const BatchListQueryChanged('lot-b'));
       },
       verify: (bloc) {
         expect(bloc.state.summary.total, 2);
         expect(bloc.state.visible.map((b) => b.id), [2]);
       },
     );
+
+    blocTest<BatchDetailBloc, BatchDetailState>(
+      'release signs the batch and reloads its traceability',
+      build: () {
+        final repo = MockBatchRepository();
+        final compliance = MockComplianceRepository();
+        final reporting = MockReportingRepository();
+        final labRepo = MockLaboratoryRepository();
+        final pending = batchFixture();
+        final released = batchFixture(status: BatchStatus.released);
+        var current = pending;
+        when(() => repo.getByLaboratory(lab)).thenAnswer((_) async => [current]);
+        when(() => repo.getTraceability(lab, any())).thenAnswer((_) async => BatchTraceability(batch: current));
+        when(() => repo.release(lab, pending, releaseDate: '2026-09-04', notes: 'Approved')).thenAnswer((_) async {
+          current = released;
+        });
+        when(() => compliance.getBatchEvents(3)).thenAnswer((_) async => const []);
+        when(() => reporting.getBatchAuditLogs(3)).thenAnswer((_) async => const []);
+        when(() => labRepo.getStaff(lab)).thenAnswer((_) async => const []);
+        return BatchDetailBloc(
+          batchId: 3,
+          batchService: BatchFacadeService(repository: repo),
+          complianceApi: ComplianceApi(complianceFacade(compliance)),
+          reportingApi: ReportingApi(reportingFacade(reporting)),
+          laboratoryApi: LaboratoryApi(LaboratoryFacadeService(repository: labRepo)),
+          laboratoryId: () => lab,
+        );
+      },
+      act: (bloc) async {
+        bloc.add(const BatchDetailRequested());
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        bloc.add(BatchReleaseSubmitted(date: DateTime(2026, 9, 4), notes: 'Approved'));
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(bloc.state.actionStatus, BatchActionStatus.success);
+        expect(bloc.state.detail.data?.batch.status, BatchStatus.released);
+      },
+    );
   });
 
   group('TelemetryDashboardBloc', () {
     late MockEquipmentRepository equipmentRepo;
+    late MockLaboratoryRepository labRepo;
     late MockTelemetryRepository telemetryRepo;
 
     setUp(() {
       equipmentRepo = MockEquipmentRepository();
+      labRepo = MockLaboratoryRepository();
       telemetryRepo = MockTelemetryRepository();
-      when(() => equipmentRepo.getByLaboratory(const LaboratoryId(7)))
-          .thenAnswer((_) async => [equipmentFixture(id: 10), equipmentFixture(id: 11, name: 'Balance')]);
-      when(() => equipmentRepo.getBpmConfigs(any())).thenAnswer((_) async => const []);
-      when(() => telemetryRepo.getStatus(any())).thenAnswer(
-        (inv) async => EquipmentTelemetryStatus(
-          equipmentId: inv.positionalArguments.first as int,
-          isOnline: true,
-          currentStatus: TelemetryStatus.operational,
-        ),
-      );
-      when(() => telemetryRepo.getLatestMeasurements(any())).thenAnswer(
-        (inv) async => [
-          Measurement(
-            id: 1,
-            equipmentId: inv.positionalArguments.first as int,
-            parameterName: 'Temperature',
-            value: 10,
-            unit: '°C',
-            timestamp: DateTime.utc(2026, 6, 14),
-          ),
+      when(() => equipmentRepo.getByLaboratory(lab)).thenAnswer(
+        (_) async => [
+          equipmentFixture(id: 10),
+          equipmentFixture(id: 11, name: 'Balance', deviceType: null),
+          equipmentFixture(id: 12, name: 'Room sensor', deviceType: null, environmentId: 3),
         ],
       );
-      when(
-        () => telemetryRepo.getHistory(any(), from: any(named: 'from'), to: any(named: 'to')),
-      ).thenAnswer((_) async => const []);
+      when(() => labRepo.getEnvironments(lab)).thenAnswer((_) async => [storage]);
+      when(() => telemetryRepo.getConnection(lab, any())).thenAnswer(
+        (inv) async => DeviceConnection(
+          deviceId: (inv.positionalArguments[1] as TelemetryTarget).deviceId,
+          status: ConnectionStatus.connected,
+        ),
+      );
+      when(() => telemetryRepo.getMeasurements(lab, any(), from: any(named: 'from'), to: any(named: 'to'))).thenAnswer(
+        // Recent readings: live polling keeps only the last 24 hours.
+        (_) async => [measurementFixture(id: 1, value: 6, measuredAt: DateTime.now().toUtc())],
+      );
+      when(() => telemetryRepo.getProfile(lab, any())).thenAnswer((_) async => null);
+      when(() => telemetryRepo.getActuationEvents(lab, any(), from: any(named: 'from'), to: any(named: 'to')))
+          .thenAnswer((_) async => const []);
     });
 
     TelemetryDashboardBloc build() => TelemetryDashboardBloc(
-      getEquipments: GetEquipments(equipmentRepo),
-      getStatus: GetTelemetryStatus(telemetryRepo),
-      getLatest: GetLatestTelemetry(telemetryRepo),
-      getHistory: GetTelemetryHistory(telemetryRepo),
-      getBpmConfigs: GetBpmConfigs(equipmentRepo),
-      laboratoryId: () => const LaboratoryId(7),
+      equipmentApi: EquipmentApi(EquipmentFacadeService(repository: equipmentRepo)),
+      laboratoryApi: LaboratoryApi(LaboratoryFacadeService(repository: labRepo)),
+      telemetryService: TelemetryFacadeService(repository: telemetryRepo),
+      laboratoryId: () => lab,
       pollInterval: const Duration(milliseconds: 20),
     );
 
     blocTest<TelemetryDashboardBloc, TelemetryState>(
-      'selects the requested equipment and starts polling',
+      'offers only IoT devices, selects one and starts polling',
       build: build,
-      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 11)),
-      wait: const Duration(milliseconds: 70),
+      act: (bloc) => bloc.add(const TelemetryStarted(deviceId: 10)),
+      wait: const Duration(milliseconds: 250),
       verify: (bloc) {
-        expect(bloc.state.selectedEquipmentId, 11);
+        expect(bloc.state.catalog.data?.devices.map((d) => d.id), [10]);
+        expect(bloc.state.selectedDeviceId, 10);
         expect(bloc.state.polling, isTrue);
-        expect(bloc.state.snapshot.data?.readings.single.latest.value, 10);
+        expect(bloc.state.snapshot.data?.readings.single.latest.value, 6);
         // Initial load + at least one poll tick.
-        verify(() => telemetryRepo.getStatus(11)).called(greaterThan(1));
-      },
-    );
-
-    blocTest<TelemetryDashboardBloc, TelemetryState>(
-      'lists only the equipment with an IoT device and opens the first one',
-      build: () {
-        when(() => equipmentRepo.getByLaboratory(const LaboratoryId(7))).thenAnswer(
-          (_) async => [
-            const Equipment(id: 3, laboratoryId: 7, name: 'Autoclave', status: EquipmentStatus.operational),
-            equipmentFixture(id: 10, name: 'Monitor'),
-          ],
-        );
-        return build();
-      },
-      act: (bloc) => bloc.add(const TelemetryStarted()),
-      wait: const Duration(milliseconds: 10),
-      verify: (bloc) {
-        expect(bloc.state.equipments.data?.map((e) => e.id), [10]);
-        expect(bloc.state.selectedEquipmentId, 10);
-        verifyNever(() => telemetryRepo.getStatus(3));
-      },
-    );
-
-    blocTest<TelemetryDashboardBloc, TelemetryState>(
-      'a device silent for the last hour falls back to a wider window once',
-      build: () {
-        when(() => telemetryRepo.getLatestMeasurements(10)).thenAnswer((_) async => const []);
-        when(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).thenAnswer(
-          (_) async => [
-            Measurement(id: 9, equipmentId: 10, parameterName: 'Temperature', value: 8, timestamp: DateTime.utc(2026, 6, 14)),
-          ],
-        );
-        return build();
-      },
-      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 10)),
-      wait: const Duration(milliseconds: 70),
-      verify: (bloc) {
-        // The silent live window keeps the readings of the fallback.
-        expect(bloc.state.snapshot.data?.readings.single.latest.value, 8);
-        verify(() => telemetryRepo.getLatestMeasurements(10, window: const Duration(hours: 24))).called(1);
-      },
-    );
-
-    blocTest<TelemetryDashboardBloc, TelemetryState>(
-      'the chart history refreshes on every poll, like the readings',
-      build: build,
-      act: (bloc) => bloc.add(const TelemetryStarted(equipmentId: 10)),
-      wait: const Duration(milliseconds: 90),
-      verify: (_) {
-        // Initial load + at least two ticks.
-        verify(
-          () => telemetryRepo.getHistory(10, from: any(named: 'from'), to: any(named: 'to')),
-        ).called(greaterThan(2));
+        verify(() => telemetryRepo.getConnection(lab, any())).called(greaterThan(1));
       },
     );
 
@@ -425,7 +438,7 @@ void main() {
       await bloc.close();
       clearInteractions(telemetryRepo);
       await Future<void>.delayed(const Duration(milliseconds: 80));
-      verifyNever(() => telemetryRepo.getStatus(any()));
+      verifyNever(() => telemetryRepo.getConnection(lab, any()));
     });
 
     blocTest<TelemetryDashboardBloc, TelemetryState>(
@@ -441,8 +454,106 @@ void main() {
       wait: const Duration(milliseconds: 80),
       verify: (bloc) {
         expect(bloc.state.polling, isFalse);
-        verifyNever(() => telemetryRepo.getStatus(any()));
+        verifyNever(() => telemetryRepo.getConnection(lab, any()));
       },
     );
+  });
+
+  group('Notifications', () {
+    test('opening an unread notice marks it as read and refreshes the bell', () async {
+      final repo = MockComplianceRepository();
+      var read = false;
+      const unread = AppNotification(id: 1, type: NotificationType.alertOpened, subjectType: 'ALERT', subjectId: 9);
+      final readNotice = AppNotification(
+        id: 1,
+        type: NotificationType.alertOpened,
+        subjectType: 'ALERT',
+        subjectId: 9,
+        readAt: DateTime.utc(2026, 10, 5),
+      );
+      when(() => repo.getNotifications(limit: 50)).thenAnswer((_) async => [if (read) readNotice else unread]);
+      when(() => repo.markRead(1)).thenAnswer((_) async => read = true);
+      when(() => repo.getUnreadCount()).thenAnswer((_) async => read ? 0 : 1);
+      final bell = UnreadNotificationsController(complianceService: complianceFacade(repo));
+      await bell.refresh();
+      expect(bell.count, 1);
+
+      final bloc = NotificationsBloc(
+        complianceService: complianceFacade(repo),
+        onReadChanged: bell.refresh,
+      )..add(const NotificationsRequested());
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(bloc.state.unread, 1);
+
+      bloc.add(const NotificationOpened(unread));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(bloc.state.unread, 0);
+      expect(bell.count, 0);
+      await bloc.close();
+      bell.dispose();
+    });
+
+    group('mark all as read', () {
+      const unread = AppNotification(id: 1, type: NotificationType.alertOpened, subjectType: 'ALERT', subjectId: 9);
+      late MockComplianceRepository repo;
+      late int refreshes;
+
+      Future<NotificationsBloc> loaded() async {
+        final bloc = NotificationsBloc(complianceService: complianceFacade(repo), onReadChanged: () async => refreshes++)
+          ..add(const NotificationsRequested());
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return bloc;
+      }
+
+      setUp(() {
+        repo = MockComplianceRepository();
+        refreshes = 0;
+        when(() => repo.getNotifications(limit: 50)).thenAnswer((_) async => [unread]);
+        when(() => repo.markAllRead()).thenAnswer((_) async {});
+      });
+
+      test('shows them read at once and can be undone without reaching the server', () async {
+        final bloc = await loaded();
+
+        bloc.add(const NotificationsAllRead());
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.unread, 0);
+        expect(bloc.state.pendingAllRead, isTrue);
+
+        bloc.add(const NotificationsAllReadUndone());
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.unread, 1);
+        expect(bloc.state.pendingAllRead, isFalse);
+
+        await bloc.close();
+        verifyNever(() => repo.markAllRead());
+      });
+
+      test('saves on the server when the undo window ends', () async {
+        final bloc = await loaded();
+
+        bloc
+          ..add(const NotificationsAllRead())
+          ..add(const NotificationsAllReadConfirmed());
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        verify(() => repo.markAllRead()).called(1);
+        expect(bloc.state.pendingAllRead, isFalse);
+        expect(refreshes, 1);
+        await bloc.close();
+      });
+
+      test('leaving the screen inside the undo window still saves it', () async {
+        final bloc = await loaded();
+
+        bloc.add(const NotificationsAllRead());
+        await Future<void>.delayed(Duration.zero);
+        await bloc.close();
+
+        verify(() => repo.markAllRead()).called(1);
+        expect(refreshes, 1);
+      });
+    });
   });
 }

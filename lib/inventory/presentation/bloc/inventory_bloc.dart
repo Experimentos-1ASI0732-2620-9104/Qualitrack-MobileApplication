@@ -1,11 +1,12 @@
+import '../../../common/domain/failure.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../shared/domain/value_objects.dart';
-import '../../../shared/infrastructure/http/api_exception_mapper.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../application/inventory_queries.dart';
-import '../../domain/inventory.dart';
+import '../../../laboratory/api/index.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../application/inventory_facade_service.dart';
+import '../../domain/entities/inventory_material.dart';
 
 enum InventoryFilter { all, belowMinimum, blockedStock }
 
@@ -48,9 +49,11 @@ final class InventoryState extends Equatable {
     this.remote = const RemoteState(),
     this.query = '',
     this.filter = InventoryFilter.all,
+    this.environmentNames = const {},
   });
 
   final RemoteState<List<InventoryMaterial>> remote;
+  final Map<int, String> environmentNames;
   final String query;
   final InventoryFilter filter;
 
@@ -77,21 +80,25 @@ final class InventoryState extends Equatable {
     RemoteState<List<InventoryMaterial>>? remote,
     String? query,
     InventoryFilter? filter,
+    Map<int, String>? environmentNames,
   }) => InventoryState(
     remote: remote ?? this.remote,
     query: query ?? this.query,
     filter: filter ?? this.filter,
+    environmentNames: environmentNames ?? this.environmentNames,
   );
 
   @override
-  List<Object?> get props => [remote, query, filter];
+  List<Object?> get props => [remote, query, filter, environmentNames];
 }
 
 class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
   InventoryBloc({
-    required GetInventoryMaterials getMaterials,
+    required LaboratoryApi laboratoryApi,
+    required InventoryFacadeService inventoryService,
     required LaboratoryId Function() laboratoryId,
-  }) : _getMaterials = getMaterials,
+  }) : _laboratoryApi = laboratoryApi,
+       _inventoryService = inventoryService,
        _laboratoryId = laboratoryId,
        super(const InventoryState()) {
     on<InventoryRequested>(_onRequested);
@@ -99,7 +106,8 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
     on<InventoryFilterChanged>((e, emit) => emit(state.copyWith(filter: e.filter)));
   }
 
-  final GetInventoryMaterials _getMaterials;
+  final LaboratoryApi _laboratoryApi;
+  final InventoryFacadeService _inventoryService;
   final LaboratoryId Function() _laboratoryId;
 
   Future<void> _onRequested(InventoryRequested event, Emitter<InventoryState> emit) async {
@@ -108,10 +116,15 @@ class InventoryBloc extends Bloc<InventoryEvent, InventoryState> {
       remote: event.refresh && current.hasData ? current.refreshingState() : current.loading(),
     ));
     try {
-      final materials = await _getMaterials(_laboratoryId());
-      emit(state.copyWith(remote: state.remote.success(materials, empty: materials.isEmpty)));
+      final lab = _laboratoryId();
+      final environments = await _laboratoryApi.getEnvironments(lab);
+      final materials = await _inventoryService.getMaterials(lab, environments.map((e) => e.id));
+      emit(state.copyWith(
+        remote: state.remote.success(materials, empty: materials.isEmpty),
+        environmentNames: {for (final e in environments) e.id: e.name},
+      ));
     } catch (error) {
-      emit(state.copyWith(remote: state.remote.failed(ApiExceptionMapper.map(error))));
+      emit(state.copyWith(remote: state.remote.failed(Failure.from(error))));
     }
   }
 }
