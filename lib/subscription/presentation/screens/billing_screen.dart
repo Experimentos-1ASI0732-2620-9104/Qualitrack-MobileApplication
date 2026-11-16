@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../app/theme/app_colors.dart';
-import '../../../app/theme/app_spacing.dart';
-import '../../../shared/presentation/formatting/context_locale.dart';
-import '../../../shared/presentation/formatting/formatters.dart';
-import '../../../shared/presentation/l10n/app_localizations.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../../shared/presentation/widgets/layout_widgets.dart';
-import '../../../shared/presentation/widgets/remote_state_view.dart';
-import '../../../shared/presentation/widgets/section_card.dart';
-import '../../../shared/presentation/widgets/status_badge.dart';
-import '../../../shared/presentation/section.dart';
-import '../../application/billing_queries.dart';
-import '../../domain/subscription.dart';
+import '../../../common/presentation/theme/app_colors.dart';
+import '../../../common/presentation/theme/app_spacing.dart';
+import '../../../common/presentation/formatting/context_locale.dart';
+import '../../../common/presentation/formatting/formatters.dart';
+import '../../../common/presentation/i18n/app_localizations.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../../common/presentation/widgets/layout_widgets.dart';
+import '../../../common/presentation/widgets/remote_state_view.dart';
+import '../../../common/presentation/widgets/section_card.dart';
+import '../../../common/presentation/widgets/status_badge.dart';
+import '../../../common/application/section.dart';
+import '../../domain/entities/billing_summary.dart';
+import '../../domain/entities/subscription.dart';
+import '../../domain/entities/subscription_payment.dart';
 import '../bloc/billing_bloc.dart';
+import '../../../common/presentation/labels.dart';
 
 BadgeTone subscriptionTone(String status) => switch (status) {
   'ACTIVE' => BadgeTone.success,
@@ -33,21 +35,21 @@ BadgeTone paymentTone(String status) => switch (status) {
 
 /// "Resumen de Facturación" mockup, read-only. Plan changes, checkout and
 /// cancellation are managed in QualiTrack Web.
-class BillingPage extends StatelessWidget {
-  const BillingPage({super.key});
+class BillingScreen extends StatelessWidget {
+  const BillingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
+    final i18n = context.i18n;
     void reload() => context.read<BillingBloc>().add(const BillingRequested(refresh: true));
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.billingTitle)),
+      appBar: AppBar(title: AppBarTitle(title: i18n.billingTitle, subtitle: i18n.billingSubtitle)),
       body: BlocBuilder<BillingBloc, RemoteState<BillingSummary>>(
         builder: (context, state) => RemoteStateView<BillingSummary>(
           state: state,
           onRetry: reload,
           emptyIcon: Icons.receipt_long_outlined,
-          emptyMessage: l10n.billingEmpty,
+          emptyMessage: i18n.billingEmpty,
           builder: (context, summary) => RefreshIndicator(
             onRefresh: () async => reload(),
             child: _BillingBody(summary: summary),
@@ -65,82 +67,86 @@ class _BillingBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
+    final i18n = context.i18n;
     final locale = context.localeName;
     final active = summary.active;
     final plan = summary.plan;
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        PageHeader(title: l10n.billingTitle, subtitle: l10n.billingSubtitle),
-        const SizedBox(height: AppSpacing.md),
         InfoCard(
-          title: l10n.currentSubscription,
+          title: i18n.currentSubscription,
           child: active == null
-              ? Text(l10n.noActiveSubscription)
+              ? Text(i18n.noActiveSubscription)
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Wrap(
-                      spacing: AppSpacing.xl,
-                      runSpacing: AppSpacing.lg,
+                    DetailList(
                       children: [
-                        KeyValue(label: l10n.plan, value: plan?.name ?? active.planCode),
-                        KeyValue(
-                          label: l10n.status,
-                          value: Formatters.humanize(active.status),
+                        DetailRow(label: i18n.plan, value: plan?.name ?? active.planCode),
+                        DetailRow(
+                          label: i18n.status,
+                          value: codeLabel(i18n, active.status),
                           valueWidget: StatusBadge(
-                            label: Formatters.humanize(active.status),
+                            label: codeLabel(i18n, active.status),
                             tone: subscriptionTone(active.status),
                           ),
                         ),
-                        KeyValue(label: l10n.billingCycle, value: Formatters.humanize(active.billingCycle)),
-                        KeyValue(
-                          label: l10n.periodStart,
+                        DetailRow(label: i18n.billingCycle, value: codeLabel(i18n, active.billingCycle)),
+                        DetailRow(
+                          label: i18n.periodStart,
                           value: Formatters.date(active.currentPeriodStart, locale),
                         ),
-                        KeyValue(
-                          label: l10n.periodEnd,
+                        DetailRow(
+                          label: i18n.periodEnd,
                           value: Formatters.date(active.currentPeriodEnd, locale),
                         ),
                         if (plan != null && plan.amount != null)
-                          KeyValue(
-                            label: l10n.amount,
+                          DetailRow(
+                            label: i18n.amount,
                             value: Formatters.money(plan.amount, plan.currency, locale),
                           ),
                         if (plan != null && plan.maxUsers != null)
-                          KeyValue(label: l10n.maxUsers, value: '${plan.maxUsers}'),
+                          DetailRow(label: i18n.maxUsers, value: '${plan.maxUsers}'),
                         if (plan != null && plan.maxEquipment != null)
-                          KeyValue(label: l10n.maxEquipment, value: '${plan.maxEquipment}'),
+                          DetailRow(label: i18n.maxEquipment, value: '${plan.maxEquipment}'),
                       ],
                     ),
+                    if (active.cancelAtPeriodEnd) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      StatusBadge(
+                        label: i18n.renewalCancelled(Formatters.date(active.currentPeriodEnd, locale)),
+                        tone: BadgeTone.warning,
+                        icon: Icons.event_busy_outlined,
+                      ),
+                    ],
                   ],
                 ),
         ),
         const SizedBox(height: AppSpacing.md),
         SectionCard<SubscriptionPayment>(
-          title: l10n.paymentHistory,
+          title: i18n.paymentHistory,
           section: Section(summary.payments),
-          emptyMessage: l10n.paymentsEmpty,
+          emptyMessage: i18n.paymentsEmpty,
           itemBuilder: (context, p) => SectionRow(
             leading: const Icon(Icons.payments_outlined, color: AppColors.primary),
             title: Formatters.money(p.amount, p.currency, locale),
             subtitle: [
-              if (p.provider != null) '${l10n.provider}: ${p.provider}',
+              if (p.provider != null) '${i18n.provider}: ${p.provider}',
               Formatters.dateTime(p.paidAt, locale),
             ].join(' · '),
-            trailing: StatusBadge(label: Formatters.humanize(p.status), tone: paymentTone(p.status)),
+            trailing: StatusBadge(label: codeLabel(i18n, p.status), tone: paymentTone(p.status)),
           ),
         ),
         const SizedBox(height: AppSpacing.md),
         SectionCard<Subscription>(
-          title: l10n.subscriptionHistory,
+          title: i18n.subscriptionHistory,
           section: Section(summary.subscriptions),
           itemBuilder: (context, s) => SectionRow(
-            title: '${s.planCode} · ${Formatters.humanize(s.billingCycle)}',
+            title: '${summary.planNameOf(s)} · ${codeLabel(i18n, s.billingCycle)}',
             subtitle:
                 '${Formatters.date(s.currentPeriodStart, locale)} – ${Formatters.date(s.currentPeriodEnd, locale)}',
-            trailing: StatusBadge(label: Formatters.humanize(s.status), tone: subscriptionTone(s.status)),
+            trailing: StatusBadge(label: codeLabel(i18n, s.status), tone: subscriptionTone(s.status)),
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
@@ -149,7 +155,7 @@ class _BillingBody extends StatelessWidget {
             const Icon(Icons.desktop_windows_outlined, size: 18, color: AppColors.textMuted),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
-              child: Text(l10n.billingManagedOnWeb, style: Theme.of(context).textTheme.bodySmall),
+              child: Text(i18n.billingManagedOnWeb, style: Theme.of(context).textTheme.bodySmall),
             ),
           ],
         ),
