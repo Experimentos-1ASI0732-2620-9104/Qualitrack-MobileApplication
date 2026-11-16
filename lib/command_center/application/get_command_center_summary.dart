@@ -1,22 +1,14 @@
 import 'package:equatable/equatable.dart';
 
-import '../../batch/application/batch_use_cases.dart';
-import '../../batch/domain/batch.dart';
-import '../../compliance/application/compliance_queries.dart';
-import '../../compliance/domain/compliance.dart';
-import '../../equipment/application/equipment_queries.dart';
-import '../../equipment/domain/equipment.dart';
-import '../../inventory/application/inventory_queries.dart';
-import '../../inventory/domain/inventory.dart';
-import '../../laboratory/application/laboratory_queries.dart';
-import '../../laboratory/domain/laboratory.dart';
-import '../../reporting/application/reporting_queries.dart';
-import '../../reporting/domain/reporting.dart';
-import '../../shared/domain/failure.dart';
-import '../../shared/domain/value_objects.dart';
-import '../../subscription/domain/subscription.dart';
-import '../../tracking/application/telemetry_queries.dart';
-import '../../tracking/domain/telemetry.dart';
+import '../../batch/api/index.dart';
+import '../../compliance/api/index.dart';
+import '../../equipment/api/index.dart';
+import '../../inventory/api/index.dart';
+import '../../laboratory/api/index.dart';
+import '../../common/domain/failure.dart';
+import '../../common/domain/value_objects.dart';
+import '../../subscription/api/index.dart';
+import '../../tracking/api/index.dart';
 
 /// A value loaded independently for the Command Center.
 final class Part<T> extends Equatable {
@@ -32,7 +24,91 @@ final class Part<T> extends Equatable {
   List<Object?> get props => [value, failure];
 }
 
-/// Operational overview computed only from real backend data.
+/// Equipment of the laboratory and the connection of its IoT devices.
+final class EquipmentSnapshot extends Equatable {
+  const EquipmentSnapshot({required this.equipments, required this.connections});
+
+  final List<Equipment> equipments;
+  final Map<int, DeviceConnection> connections;
+
+  int get total => equipments.length;
+  int get operational => equipments.where((e) => e.status == EquipmentStatus.operational).length;
+  int get maintenance => equipments.where((e) => e.status == EquipmentStatus.maintenance).length;
+  int get devices => telemetryDevices(equipments).length;
+  int get connected => connections.values.where((c) => c.isConnected).length;
+  int get requiresReview => connections.values.where((c) => c.status == ConnectionStatus.requiresReview).length;
+
+  /// IoT devices that are neither connected nor flagged for review (no recent
+  /// data, or their status could not be read).
+  int get offline => (devices - connected - requiresReview).clamp(0, devices);
+
+  @override
+  List<Object?> get props => [equipments, connections];
+}
+
+/// Batches of the laboratory with the most recent ones.
+final class BatchOverview extends Equatable {
+  const BatchOverview({required this.summary, required this.recent});
+
+  final BatchSummary summary;
+  final List<ProductionBatch> recent;
+
+  @override
+  List<Object?> get props => [summary, recent];
+}
+
+/// Open alerts of every environment, most urgent first.
+final class AlertOverview extends Equatable {
+  const AlertOverview({required this.summary, required this.open, this.thresholds = const {}});
+
+  final AlertSummary summary;
+  final List<DeviationAlert> open;
+
+  /// The range of the metric of the most urgent unresolved alerts, by alert id.
+  final Map<int, MetricThreshold> thresholds;
+
+  /// The open alerts in the order to look at them: critical first, the
+  /// unattended before the acknowledged ones, then the most recent.
+  List<DeviationAlert> get byPriority => [...open]..sort(DeviationAlert.compareByPriority);
+
+  @override
+  List<Object?> get props => [summary, open, thresholds];
+}
+
+/// Alerts whose profile is read: one parallel round.
+const int rangedAlerts = 4;
+
+/// The range of the metric of each of the [rangedAlerts] most urgent unresolved
+/// alerts, by alert id. Each device's profile is read once.
+Future<Map<int, MetricThreshold>> alertThresholds(
+  TelemetryApi telemetryApi,
+  LaboratoryId lab,
+  List<DeviationAlert> open,
+) async {
+  final ranged =
+      (open.where((a) => a.status == AlertStatus.unresolved && a.environmentId != null).toList()
+            ..sort(DeviationAlert.compareByPriority))
+          .take(rangedAlerts)
+          .toList();
+  final targets = {
+    for (final alert in ranged)
+      TelemetryTarget(
+        deviceId: alert.equipmentId,
+        environmentId: alert.environmentId!,
+        containerMonitor: alert.origin == AlertOrigin.container,
+      ),
+  };
+  final profiles = await telemetryApi.getProfiles(lab, targets.toList());
+  return {
+    for (final alert in ranged)
+      if (profiles[alert.equipmentId]?.thresholdFor(MonitoredMetric.fromCode(alert.parameterName)) case final range?)
+        alert.id: range,
+  };
+}
+
+/// Operational overview of the laboratory, the same cards as the Web
+/// dashboard: equipment, batches in progress, open alerts, low stock and, for
+/// quality managers, the subscription.
 final class CommandCenterSummary extends Equatable {
   const CommandCenterSummary({
     required this.laboratory,
@@ -40,111 +116,97 @@ final class CommandCenterSummary extends Equatable {
     required this.batches,
     required this.alerts,
     required this.materials,
-    required this.kpi,
     required this.subscription,
+    this.environmentNames = const {},
+    this.fetchedAt,
   });
 
   final Part<Laboratory> laboratory;
   final Part<EquipmentSnapshot> equipment;
-  final Part<BatchSummary> batches;
-  final Part<AlertSummary> alerts;
+  final Part<BatchOverview> batches;
+  final Part<AlertOverview> alerts;
   final Part<List<InventoryMaterial>> materials;
-  final Part<KpiDashboard?> kpi;
-  final Part<Subscription?> subscription;
+
+  /// Null for staff members: the subscription belongs to the quality manager.
+  final Part<BillingSummary>? subscription;
+  final Map<int, String> environmentNames;
+
+  /// When the summary was loaded, to tell how current the panel is.
+  final DateTime? fetchedAt;
+
+  /// Equipment names by id, to name the device of each open alert.
+  Map<int, String> get equipmentNames => {for (final e in equipment.value?.equipments ?? const <Equipment>[]) e.id: e.name};
 
   @override
-  List<Object?> get props => [laboratory, equipment, batches, alerts, materials, kpi, subscription];
+  List<Object?> get props => [laboratory, equipment, batches, alerts, materials, subscription, environmentNames, fetchedAt];
 }
-
-final class EquipmentSnapshot extends Equatable {
-  const EquipmentSnapshot({required this.equipments, required this.statuses});
-
-  final List<Equipment> equipments;
-  final Map<int, EquipmentTelemetryStatus> statuses;
-
-  int get total => equipments.length;
-  int get operational => equipments.where((e) => e.status == EquipmentStatus.operational).length;
-  int get online => statuses.values.where((s) => s.isOnline).length;
-  int get telemetryAttention => statuses.values.where((s) => s.needsAttention).length;
-  int get needingAttention => equipments
-      .where((e) => e.needsAttention || (statuses[e.id]?.needsAttention ?? false))
-      .length;
-  int get maintenance => equipments.where((e) => e.status == EquipmentStatus.maintenance).length;
-
-  @override
-  List<Object?> get props => [equipments, statuses];
-}
-
-typedef ActiveSubscriptionLoader = Future<Subscription?> Function(LaboratoryId id);
 
 class GetCommandCenterSummary {
   const GetCommandCenterSummary({
-    required GetLaboratory getLaboratory,
-    required GetEquipments getEquipments,
-    required GetTelemetryStatuses getTelemetryStatuses,
-    required GetBatches getBatches,
-    required GetLaboratoryAlerts getAlerts,
-    required GetInventoryMaterials getMaterials,
-    required GetKpiDashboard getKpi,
-    required ActiveSubscriptionLoader getActiveSubscription,
-  }) : _getLaboratory = getLaboratory,
-       _getEquipments = getEquipments,
-       _getStatuses = getTelemetryStatuses,
-       _getBatches = getBatches,
-       _getAlerts = getAlerts,
-       _getMaterials = getMaterials,
-       _getKpi = getKpi,
-       _getSubscription = getActiveSubscription;
+    required LaboratoryApi laboratoryApi,
+    required EquipmentApi equipmentApi,
+    required TelemetryApi telemetryApi,
+    required BatchApi batchApi,
+    required ComplianceApi complianceApi,
+    required InventoryApi inventoryApi,
+    required SubscriptionApi subscriptionApi,
+  }) : _laboratoryApi = laboratoryApi,
+       _equipmentApi = equipmentApi,
+       _telemetryApi = telemetryApi,
+       _batchApi = batchApi,
+       _complianceApi = complianceApi,
+       _inventoryApi = inventoryApi,
+       _subscriptionApi = subscriptionApi;
 
-  final GetLaboratory _getLaboratory;
-  final GetEquipments _getEquipments;
-  final GetTelemetryStatuses _getStatuses;
-  final GetBatches _getBatches;
-  final GetLaboratoryAlerts _getAlerts;
-  final GetInventoryMaterials _getMaterials;
-  final GetKpiDashboard _getKpi;
-  final ActiveSubscriptionLoader _getSubscription;
+  final LaboratoryApi _laboratoryApi;
+  final EquipmentApi _equipmentApi;
+  final TelemetryApi _telemetryApi;
+  final BatchApi _batchApi;
+  final ComplianceApi _complianceApi;
+  final InventoryApi _inventoryApi;
+  final SubscriptionApi _subscriptionApi;
 
-  Future<CommandCenterSummary> call(LaboratoryId lab) async {
-    final equipmentFuture = _part(() => _getEquipments(lab));
-    final results = await Future.wait<Object>([
-      _part(() => _getLaboratory(lab)),
-      _part(() async => BatchSummary.of(await _getBatches(lab))),
-      _part(() => _getMaterials(lab)),
-      _part(() => _getKpi(lab)),
-      _part(() => _getSubscription(lab)),
-      equipmentFuture,
+  Future<CommandCenterSummary> call(LaboratoryId lab, {required bool includeSubscription}) async {
+    final environmentsPart = await _part(() => _laboratoryApi.getEnvironments(lab));
+    final environmentIds = environmentsPart.value?.map((e) => e.id).toList();
+    Future<Part<T>> perEnvironment<T>(Future<T> Function(List<int> ids) load) => environmentIds == null
+        ? Future.value(Part<T>.failed(environmentsPart.failure!))
+        : _part(() => load(environmentIds));
+
+    final results = await Future.wait<Object?>([
+      _part(() => _laboratoryApi.getLaboratory(lab)),
+      _part(() async {
+        final equipments = await _equipmentApi.getEquipments(lab);
+        final targets = equipments.map(targetOf).whereType<TelemetryTarget>().toList();
+        return EquipmentSnapshot(equipments: equipments, connections: await _telemetryApi.getConnections(lab, targets));
+      }),
+      _part(() async {
+        final batches = await _batchApi.getBatches(lab);
+        final recent = [...batches]..sort((a, b) => b.id.compareTo(a.id));
+        return BatchOverview(summary: BatchSummary.of(batches), recent: recent.take(4).toList());
+      }),
+      perEnvironment((ids) async {
+        final alerts = await _complianceApi.getLaboratoryAlerts(lab, ids);
+        final open = alerts.where((a) => a.isOpen).toList();
+        return AlertOverview(
+          summary: AlertSummary.of(alerts),
+          open: open,
+          thresholds: await alertThresholds(_telemetryApi, lab, open),
+        );
+      }),
+      perEnvironment((ids) => _inventoryApi.getMaterials(lab, ids)),
+      includeSubscription ? _part(() => _subscriptionApi.getBillingSummary(lab)) : Future<Part<BillingSummary>?>.value(),
     ]);
 
-    final equipmentPart = results[5] as Part<List<Equipment>>;
-    Part<EquipmentSnapshot> equipment;
-    Part<AlertSummary> alerts;
-    if (equipmentPart.isOk) {
-      final list = equipmentPart.value!;
-      final ids = list.where((e) => e.hasDevice).map((e) => e.id).toList();
-      final both = await Future.wait<Object>([
-        _part(() => _getStatuses(ids)),
-        _part(() async => AlertSummary.of(await _getAlerts(lab))),
-      ]);
-      final statuses = both[0] as Part<Map<int, EquipmentTelemetryStatus>>;
-      equipment = Part.ok(EquipmentSnapshot(
-        equipments: list,
-        statuses: statuses.value ?? const {},
-      ));
-      alerts = both[1] as Part<AlertSummary>;
-    } else {
-      equipment = Part.failed(equipmentPart.failure!);
-      alerts = Part.failed(equipmentPart.failure!);
-    }
-
     return CommandCenterSummary(
-      laboratory: results[0] as Part<Laboratory>,
-      batches: results[1] as Part<BatchSummary>,
-      materials: results[2] as Part<List<InventoryMaterial>>,
-      kpi: results[3] as Part<KpiDashboard?>,
-      subscription: results[4] as Part<Subscription?>,
-      equipment: equipment,
-      alerts: alerts,
+      laboratory: results[0]! as Part<Laboratory>,
+      equipment: results[1]! as Part<EquipmentSnapshot>,
+      batches: results[2]! as Part<BatchOverview>,
+      alerts: results[3]! as Part<AlertOverview>,
+      materials: results[4]! as Part<List<InventoryMaterial>>,
+      subscription: results[5] as Part<BillingSummary>?,
+      environmentNames: {for (final e in environmentsPart.value ?? const <LabEnvironment>[]) e.id: e.name},
+      fetchedAt: DateTime.now(),
     );
   }
 
