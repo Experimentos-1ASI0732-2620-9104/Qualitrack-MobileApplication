@@ -1,11 +1,12 @@
+import '../../../common/domain/failure.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../shared/domain/value_objects.dart';
-import '../../../shared/infrastructure/http/api_exception_mapper.dart';
-import '../../../shared/presentation/remote_state.dart';
-import '../../application/laboratory_queries.dart';
-import '../../domain/laboratory.dart';
+import '../../../common/domain/value_objects.dart';
+import '../../../common/presentation/remote_state.dart';
+import '../../application/laboratory_facade_service.dart';
+import '../../domain/entities/pharmaceutical_product.dart';
+import '../../domain/entities/product_catalog.dart';
 
 sealed class ProductsEvent extends Equatable {
   const ProductsEvent();
@@ -35,20 +36,21 @@ final class ProductsQueryChanged extends ProductsEvent {
 final class ProductsState extends Equatable {
   const ProductsState({this.remote = const RemoteState(), this.query = ''});
 
-  final RemoteState<List<PharmaceuticalProduct>> remote;
+  final RemoteState<ProductCatalog> remote;
   final String query;
 
-  List<PharmaceuticalProduct> get visible =>
-      (remote.data ?? const []).where((p) => p.matches(query)).toList(growable: false);
+  List<PharmaceuticalProduct> get visible => (remote.data?.products ?? const <PharmaceuticalProduct>[])
+      .where((p) => p.matches(query))
+      .toList(growable: false);
 
   PharmaceuticalProduct? byId(int id) {
-    for (final product in remote.data ?? const <PharmaceuticalProduct>[]) {
+    for (final product in remote.data?.products ?? const <PharmaceuticalProduct>[]) {
       if (product.id == id) return product;
     }
     return null;
   }
 
-  ProductsState copyWith({RemoteState<List<PharmaceuticalProduct>>? remote, String? query}) =>
+  ProductsState copyWith({RemoteState<ProductCatalog>? remote, String? query}) =>
       ProductsState(remote: remote ?? this.remote, query: query ?? this.query);
 
   @override
@@ -56,15 +58,15 @@ final class ProductsState extends Equatable {
 }
 
 class ProductsBloc extends Bloc<ProductsEvent, ProductsState> {
-  ProductsBloc({required GetProducts getProducts, required LaboratoryId Function() laboratoryId})
-    : _getProducts = getProducts,
+  ProductsBloc({required LaboratoryFacadeService laboratoryService, required LaboratoryId Function() laboratoryId})
+    : _laboratoryService = laboratoryService,
       _laboratoryId = laboratoryId,
       super(const ProductsState()) {
     on<ProductsRequested>(_onRequested);
     on<ProductsQueryChanged>((event, emit) => emit(state.copyWith(query: event.query)));
   }
 
-  final GetProducts _getProducts;
+  final LaboratoryFacadeService _laboratoryService;
   final LaboratoryId Function() _laboratoryId;
 
   Future<void> _onRequested(ProductsRequested event, Emitter<ProductsState> emit) async {
@@ -73,10 +75,10 @@ class ProductsBloc extends Bloc<ProductsEvent, ProductsState> {
       remote: event.refresh && current.hasData ? current.refreshingState() : current.loading(),
     ));
     try {
-      final products = await _getProducts(_laboratoryId());
-      emit(state.copyWith(remote: state.remote.success(products, empty: products.isEmpty)));
+      final catalog = await _laboratoryService.getProductCatalog(_laboratoryId());
+      emit(state.copyWith(remote: state.remote.success(catalog, empty: catalog.products.isEmpty)));
     } catch (error) {
-      emit(state.copyWith(remote: state.remote.failed(ApiExceptionMapper.map(error))));
+      emit(state.copyWith(remote: state.remote.failed(Failure.from(error))));
     }
   }
 }
