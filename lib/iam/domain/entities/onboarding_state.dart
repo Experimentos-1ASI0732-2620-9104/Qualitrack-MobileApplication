@@ -1,21 +1,8 @@
 import 'package:equatable/equatable.dart';
 
-/// `nextStep` values of `GET /users/me/onboarding`.
-enum OnboardingStep {
-  subscription,
-  laboratory,
-  ready,
-  unknown;
+import 'onboarding_step.dart';
 
-  static OnboardingStep fromCode(String? code) => switch (code) {
-    'SUBSCRIPTION' => OnboardingStep.subscription,
-    'LABORATORY' => OnboardingStep.laboratory,
-    'READY' => OnboardingStep.ready,
-    _ => OnboardingStep.unknown,
-  };
-}
-
-final class OnboardingState extends Equatable {
+class OnboardingState extends Equatable {
   const OnboardingState({
     required this.nextStep,
     this.laboratoryId,
@@ -29,6 +16,10 @@ final class OnboardingState extends Equatable {
   final String? subscriptionStatus;
 
   bool get isReady => nextStep == OnboardingStep.ready;
+
+  /// Staff members sign in first with the temporary password received when
+  /// their quality manager registered them and must replace it.
+  bool get requiresPasswordChange => nextStep == OnboardingStep.passwordChange;
 
   @override
   List<Object?> get props => [nextStep, laboratoryId, subscriptionId, subscriptionStatus];

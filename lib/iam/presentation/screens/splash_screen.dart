@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/theme/app_colors.dart';
-import '../../../app/theme/app_spacing.dart';
-import '../../../shared/presentation/l10n/app_localizations.dart';
+import '../../../common/presentation/theme/app_colors.dart';
+import '../../../common/presentation/theme/app_spacing.dart';
+import '../../../common/presentation/i18n/app_localizations.dart';
 import '../widgets/qualitrack_logo.dart';
 
 /// Shown while the stored session is being validated. Navigation happens in
 /// the router redirect as soon as [SessionController] resolves.
-class SplashPage extends StatelessWidget {
-  const SplashPage({super.key});
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +21,7 @@ class SplashPage extends StatelessWidget {
             const QualiTrackLogo(size: 120),
             const SizedBox(height: AppSpacing.xl),
             Semantics(
-              label: context.l10n.checkingSession,
+              label: context.i18n.checkingSession,
               child: const CircularProgressIndicator(),
             ),
           ],
